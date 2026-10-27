@@ -1,0 +1,81 @@
+{
+  // TEMPLATE for hosting many wards from one deployment (src/host.ts; docs/DEPLOYMENT.md, "Hosting
+  // many wards"). Copy it to `wrangler.host.production.jsonc` (git-ignored), replace example.org
+  // with your domain, and deploy with `npm run host:deploy`. This is a separate Worker from any
+  // single-ward deployment (`wrangler.jsonc` / `wrangler.production.jsonc`) and shares nothing
+  // with one.
+  //
+  // !! BEFORE THE FIRST DEPLOY: the wildcard route below runs *in front of* every Worker attached
+  // to a hostname in the zone by Custom Domain — Cloudflare treats a Custom Domain Worker as the
+  // origin, and route Workers run first. So any existing single-ward deployment on a subdomain of
+  // the same domain (say `myward.example.org`) would be captured by this host. For each one, add a
+  // route in the dashboard (Workers Routes → Add route) for `myward.example.org/*` with the Worker
+  // set to **None**: the more specific route wins and the host never sees that hostname. Check it
+  // still serves its own app after the deploy (DEPLOYMENT.md has the check).
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ward-host",
+  "main": "src/host.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Same reason as wrangler.jsonc: every request passes the front door (and each ward's member
+  // gate) before a file is served.
+  "assets": { "directory": "public", "binding": "ASSETS", "run_worker_first": true },
+
+  // Every <ward>.example.org, and OPERATOR_HOST, lands here. Needs a proxied wildcard DNS record
+  // (`*`) in the zone; its target is never contacted while the host answers every request, so an
+  // existing one can stay as it is. (Cloudflare advises against an `AAAA 100::` placeholder.)
+  // Universal SSL covers one level of subdomain.
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "*.example.org/*", "zone_name": "example.org" }],
+
+  // One registry and one SQLite Durable Object per ward. The migration tag is permanent: never
+  // edit or remove it once deployed; add a new tagged entry for any later class change.
+  "durable_objects": {
+    "bindings": [
+      { "name": "WARD", "class_name": "WardDO" },
+      { "name": "REGISTRY", "class_name": "RegistryDO" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WardDO", "RegistryDO"] }],
+
+  // Images, every ward under its own prefix. Create the bucket first: wrangler r2 bucket create ward-host-images
+  "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "ward-host-images" }],
+
+  // Hourly: wake every ward (missing alarms, pending migrations). The real schedule is each ward's
+  // own alarm.
+  "triggers": { "crons": ["0 * * * *"] },
+
+  "observability": { "enabled": true },
+
+  // The one required secret is ADMIN_PASSWORD — the operator's password (API token and operator page):
+  // npx wrangler secret put ADMIN_PASSWORD --config wrangler.host.production.jsonc
+  // A second, BACKUP_SEAL_KEY (32 random bytes, base64url; `npm run vapid` prints one), seals the
+  // push keys inside every ward's backup and export, so an export imports back here with every
+  // subscription intact and a file alone cannot send. It is host-wide on purpose — one key for every
+  // ward — and must stay the same across deploys, or older exports stop opening:
+  // npx wrangler secret put BACKUP_SEAL_KEY --config wrangler.host.production.jsonc
+  // Wards have no "Owner sign-in" here: to get into one, mint yourself an admin invite from the
+  // operator page. (WARD_OWNER_SIGNIN = "on" would offer this password on every ward's sign-in
+  // page instead; only the test configs do that.)
+  //
+  // Not here: PUBLIC_ORIGIN, VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY. Those are one deployment's
+  // (wrangler.jsonc); on the host each ward's address is its hostname and its push keys are the
+  // pair in its own database (or the pair given to Import Backup). Set host-wide they are ignored,
+  // with a warning in the log, because they would apply to every ward at once. VAPID_SUBJECT may
+  // be set here: it is the operator's contact address, the same for every ward.
+  "vars": {
+    "NODE_ENV": "production",
+    "OPERATOR_HOST": "admin.example.org",
+    // Every ward is <subdomain>.example.org (what the route above covers); the operator page asks only
+    // for the subdomain.
+    "WARD_DOMAIN": "example.org",
+    "IMAGE_QUOTA_MB": "250",
+    // Defaults a new ward starts from; each ward renames itself under Settings → Ward Settings.
+    "APP_NAME": "Ward Announcements",
+    "APP_SHORT_NAME": "Ward",
+    "APP_DESCRIPTION": "Current ward announcements and program.",
+    "TZ": "America/Denver"
+  }
+}

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 210" fill="none" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <marker id="arrowhead" markerWidth="3.2" markerHeight="3.6" refX="2" refY="1.8" orient="auto">
+      <path d="M0 0 L3 1.8 L0 3.6 Z" fill="#ff3b30" />
+    </marker>
+  </defs>
+  <rect x="6" y="6" width="308" height="198" rx="18" fill="#fff" stroke="#e6e6ea" stroke-width="2" />
+  <line x1="50" y1="57" x2="314" y2="57" stroke="#ececec" stroke-width="1.5" />
+  <line x1="50" y1="105" x2="314" y2="105" stroke="#ececec" stroke-width="1.5" />
+  <line x1="50" y1="153" x2="314" y2="153" stroke="#ececec" stroke-width="1.5" />
+
+  <!-- Add Bookmark to… (open book) -->
+  <path d="M28 24 C25 21.5 20 21.5 16 23 V41 C20 39.5 25 39.5 28 42 C31 39.5 36 39.5 40 41 V23 C36 21.5 31 21.5 28 24 Z" stroke="#1c1c1e" stroke-width="2" stroke-linejoin="round" />
+  <path d="M28 24 V42" stroke="#1c1c1e" stroke-width="2" />
+  <text x="58" y="38" font-size="18" fill="#1c1c1e">Add Bookmark to…</text>
+
+  <!-- Add to Favorites (star) -->
+  <path d="M28 68.5 L31.1 78.1 L41.2 78.1 L33 84 L36.2 93.6 L28 87.7 L19.8 93.6 L23 84 L14.8 78.1 L24.9 78.1 Z" fill="none" stroke="#1c1c1e" stroke-width="2" stroke-linejoin="round" />
+  <text x="58" y="86" font-size="18" fill="#1c1c1e">Add to Favorites</text>
+
+  <!-- Find on Page (page + magnifier) -->
+  <rect x="18" y="118" width="15" height="20" rx="2" fill="none" stroke="#1c1c1e" stroke-width="2" />
+  <line x1="22" y1="124" x2="29" y2="124" stroke="#1c1c1e" stroke-width="1.6" stroke-linecap="round" />
+  <line x1="22" y1="128" x2="29" y2="128" stroke="#1c1c1e" stroke-width="1.6" stroke-linecap="round" />
+  <circle cx="31" cy="134" r="5.5" fill="#fff" stroke="#1c1c1e" stroke-width="2" />
+  <line x1="35.5" y1="138.5" x2="39" y2="142" stroke="#1c1c1e" stroke-width="2" stroke-linecap="round" />
+  <text x="58" y="134" font-size="18" fill="#1c1c1e">Find on Page</text>
+
+  <!-- Add to Home Screen (target) -->
+  <rect x="17" y="167" width="22" height="22" rx="5" fill="none" stroke="#1c1c1e" stroke-width="2" />
+  <line x1="28" y1="172" x2="28" y2="184" stroke="#1c1c1e" stroke-width="2" stroke-linecap="round" />
+  <line x1="22" y1="178" x2="34" y2="178" stroke="#1c1c1e" stroke-width="2" stroke-linecap="round" />
+  <text x="58" y="184" font-size="18" fill="#1c1c1e">Add to Home Screen</text>
+
+  <!-- red arrow -->
+  <line x1="282" y1="102" x2="214" y2="172" stroke="#ff3b30" stroke-width="5" stroke-linecap="butt" marker-end="url(#arrowhead)" />
+</svg>

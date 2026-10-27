@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem privately
+    url: https://github.com/luminationlabs/ward-announcements/security/advisories/new
+    about: Please don't open a public issue for a security problem. See SECURITY.md.
+  - name: Ask about hosting on oneward.org
+    url: https://github.com/luminationlabs/ward-announcements#1-ask-us-to-host-it
+    about: How to ask for a hosted ward.

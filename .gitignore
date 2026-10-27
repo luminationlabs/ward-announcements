@@ -1,0 +1,55 @@
+node_modules/
+dist/
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+.env.local
+# Any other .env variant (.env.production, …) holds secrets too; only the template is tracked.
+.env.*
+!.env.node.example
+# Cloudflare Workers local config + state (.dev.vars is the Workers .env)
+.dev.vars
+.dev.vars.local
+.dev.vars.*
+!.dev.vars.example
+.wrangler/
+# Private keys and certificates (a pinned VAPID key, a local HTTPS cert).
+*.pem
+# Backups and what the restore steps write beside them (docs/DEPLOYMENT.md, "Restoring a backup"):
+# the dashboard's ward-announcements-backup-<date>.zip/.json, the operator's <ward>-backup-<date>.*,
+# restore.sql / reset.sql and the <backup>-images/ folder. They hold the access codes, the member
+# cookie key, device tokens and every subscriber's endpoint.
+*-backup-*.zip
+*-backup-*.json
+*.sql
+*-images/
+*.log
+.DS_Store
+# Generated assets (recreated by `npm run assets`)
+public/icons/
+public/vendor/pdfmake/
+public/vendor/editor.js
+public/vendor/passkey.js
+
+# Local agent settings
+.claude/
+
+# Local scratch (e.g. SVG/icon previews)
+.preview/
+temple-icon/
+plans/
+# A hand-made flyer: its QR code is a real access code.
+/flyer/
+# Git worktrees for parallel branches.
+.worktrees/
+# Your own deployment's Wrangler config (your domain, database id, ward name). wrangler.jsonc is the
+# generic template the Deploy button reads; `npm run cf:deploy` uses this file instead.
+wrangler.production.jsonc
+wrangler.host.production.jsonc
+# Per-deployment icon choice (see scripts/generate-icons.mjs); without it the generic chapel is used.
+art/icon.local.json
+# Working notes and plans: kept locally, not part of the published docs.
+docs/PLAN.md

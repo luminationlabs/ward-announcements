@@ -1,0 +1,70 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // The template a new ward deploys from, whether through the Deploy to Cloudflare button or
+  // `npm run deploy` (docs/DEPLOYMENT.md). Nothing in it is specific to any one ward: the database
+  // is created on first deploy, the VAPID keys on first boot, and the public address is learned from
+  // the admin's first visit. A deployment of your own that you keep updating belongs in a copy of
+  // this file, `wrangler.production.jsonc` (git-ignored), which `npm run cf:deploy` uses.
+  "name": "ward-app",
+  "main": "src/worker.ts",
+
+  // 2026-08-01 predates the date at which nodejs_compat is on by default, so the flag is explicit.
+  // It is required, not cosmetic: the access cookie, the admin session and the code generator all
+  // use `node:crypto` (createHmac / randomBytes / timingSafeEqual), and `Buffer` appears in the
+  // cookie verification path.
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // `run_worker_first` is load-bearing: every request must pass through the member access gate in
+  // `app.ts` before anything is served, and `/`, `/index.html`, `/sw.js` and `/manifest.webmanifest`
+  // are all rendered by the Worker from files of the same name in this directory. The Worker falls
+  // back to this binding for everything it does not handle itself.
+  "assets": {
+    "directory": "public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+
+  // Served at https://<name>.<your-subdomain>.workers.dev. To use a domain of your own, add it under
+  // the Worker's Domains & Routes in the dashboard, set PUBLIC_ORIGIN to match, and consider turning
+  // this off so members only ever see one address.
+  "workers_dev": true,
+  "preview_urls": false,
+
+  // No `database_id`: Wrangler (and the Deploy button) creates the database on first deploy. The
+  // Worker creates its own tables on its first request — there is no migration step.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ward-app"
+    }
+  ],
+
+  // No R2 bucket: uploaded images are stored in D1 (src/filestore-sql.ts), because enabling R2 asks
+  // for a payment card even on its free tier. To use R2 instead, create a bucket and add:
+  //   "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "<your bucket>" }]
+
+  // Every minute. The tick drains one chunk of the send queue if there is one, and otherwise checks
+  // whether the weekly digest is due (see `runTick()` in src/tick.ts). A weekly cron would be wrong:
+  // a send is delivered a chunk at a time, so the runtime has to come back until the queue empties.
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+
+  "observability": {
+    "enabled": true
+  },
+
+  // Non-secret configuration; the Deploy button asks for each of these, and will not take a blank
+  // one, so only values every ward needs are here. The optional ones — APP_FOOTER (also on the
+  // dashboard's Ward Settings), VAPID_SUBJECT and PUBLIC_ORIGIN — read as unset when absent; pin them
+  // in wrangler.production.jsonc. The secrets — ADMIN_PASSWORD, and the optional BACKUP_SEAL_KEY — are
+  // listed in .dev.vars.example. Descriptions: package.json "cloudflare".
+  "vars": {
+    "APP_NAME": "Ward Announcements",
+    "APP_SHORT_NAME": "Ward",
+    "APP_DESCRIPTION": "Current ward announcements and program.",
+    "NODE_ENV": "production",
+    "TZ": "America/Denver"
+  }
+}

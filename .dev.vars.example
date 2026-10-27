@@ -1,0 +1,26 @@
+# Secrets for the Workers entry, in dotenv format. Two readers, so keep it to secrets only:
+#
+# - The Deploy to Cloudflare button asks for every uncommented KEY= line here and stores each as
+#   a Worker secret. A non-secret here would be prompted for as a secret and shadow its `vars` value.
+# - `npm run cf:dev`: copy this file to .dev.vars (git-ignored). Its values, and the commented local
+#   overrides below once uncommented, override the `vars` block in wrangler.jsonc for local runs.
+#
+# The VAPID keys are not here: a deployment that leaves them unset generates a pair on first boot
+# and keeps it in the database (src/identity.ts). Set VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY as
+# secrets only to pin a pair you already have.
+#
+# BACKUP_SEAL_KEY (optional, a secret): seals the push keys inside the dashboard's backup, so a
+# backup restored on this deployment keeps every subscription while the file alone cannot send.
+# 32 random bytes, base64url — `npm run vapid` prints one. Unset, the backup leaves the keys out.
+# Set it with `npx wrangler secret put BACKUP_SEAL_KEY` (or uncomment it here for the Deploy button).
+# BACKUP_SEAL_KEY=
+
+# The owner's password for /admin (the way in on a fresh deployment, and the way back if every
+# passkey is lost). Everyone else signs in with their own passkey, added under Settings → People.
+# Pick a long passphrase of your own (12+ characters); the app refuses well-known example values.
+ADMIN_PASSWORD=
+
+# --- Local development only (uncomment in .dev.vars; never deploy these) ---
+# NODE_ENV=development
+# localhost, not 127.0.0.1: browsers refuse passkeys on a bare IP address.
+# PUBLIC_ORIGIN=http://localhost:8787

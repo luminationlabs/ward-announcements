@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 100" fill="none" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <marker id="arrowhead" markerWidth="3.2" markerHeight="3.6" refX="2" refY="1.8" orient="auto">
+      <path d="M0 0 L3 1.8 L0 3.6 Z" fill="#ff3b30" />
+    </marker>
+  </defs>
+
+  <!-- Copy -->
+  <circle cx="44" cy="36" r="20" fill="#eef0f3" />
+  <rect x="38" y="29" width="10" height="12" rx="2" fill="none" stroke="#1c1c1e" stroke-width="1.6" />
+  <rect x="42" y="33" width="10" height="12" rx="2" fill="#eef0f3" stroke="#1c1c1e" stroke-width="1.6" />
+  <text x="44" y="74" font-size="12" fill="#1c1c1e" text-anchor="middle">Copy</text>
+
+  <!-- Add to Bookmarks -->
+  <circle cx="120" cy="36" r="20" fill="#eef0f3" />
+  <path d="M115 28 V45 L120 41 L125 45 V28 Z" fill="none" stroke="#1c1c1e" stroke-width="1.6" stroke-linejoin="round" />
+  <text x="120" y="74" font-size="12" fill="#1c1c1e" text-anchor="middle">Add to</text>
+  <text x="120" y="88" font-size="12" fill="#1c1c1e" text-anchor="middle">Bookmarks</text>
+
+  <!-- Add to Reading List -->
+  <circle cx="196" cy="36" r="20" fill="#eef0f3" />
+  <circle cx="191" cy="37" r="4" fill="none" stroke="#1c1c1e" stroke-width="1.6" />
+  <circle cx="201" cy="37" r="4" fill="none" stroke="#1c1c1e" stroke-width="1.6" />
+  <line x1="195" y1="37" x2="197" y2="37" stroke="#1c1c1e" stroke-width="1.6" />
+  <text x="196" y="74" font-size="12" fill="#1c1c1e" text-anchor="middle">Add to</text>
+  <text x="196" y="88" font-size="12" fill="#1c1c1e" text-anchor="middle">Reading List</text>
+
+  <!-- View More (down chevron) -->
+  <circle cx="272" cy="36" r="20" fill="#eef0f3" />
+  <path d="M266 33 L272 39 L278 33" stroke="#1c1c1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+  <text x="272" y="74" font-size="12" fill="#1c1c1e" text-anchor="middle">View More</text>
+
+  <!-- red arrow to View More -->
+  <line x1="316" y1="0" x2="285" y2="20" stroke="#ff3b30" stroke-width="5" stroke-linecap="butt" marker-end="url(#arrowhead)" />
+</svg>

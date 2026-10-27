@@ -1,0 +1,39 @@
+node_modules
+dist
+data
+*.db
+*.db-*
+.env
+.env.local
+.git
+.gitignore
+*.log
+.DS_Store
+public/icons
+npm-debug.log*
+
+# Secrets and per-deployment config: never needed to build, and an image layer is no place for them.
+.env.*
+!.env.node.example
+.dev.vars
+.dev.vars.local
+.dev.vars.*
+*.production.jsonc
+*.pem
+# Backups and restore output: access codes, cookie keys, device tokens, subscriber endpoints.
+*-backup-*.zip
+*-backup-*.json
+*.sql
+*-images
+# Per-machine icon choice (see art/README.md): the image is built with the generic meetinghouse.
+art/icon.local.json
+
+# Local runtime state, scratch and working notes.
+.wrangler
+.claude
+.preview
+temple-icon
+flyer
+.worktrees
+plans
+docs/PLAN.md

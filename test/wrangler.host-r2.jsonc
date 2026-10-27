@@ -1,0 +1,21 @@
+{
+  // test/wrangler.host.jsonc plus an R2 bucket, so `npm run test:host` also covers images in the
+  // shared bucket under each ward's prefix. Local only; nothing here is ever deployed.
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "ward-host-r2-test",
+  "main": "../src/host.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": { "directory": "../public", "binding": "ASSETS", "run_worker_first": true },
+  "durable_objects": {
+    "bindings": [
+      { "name": "WARD", "class_name": "WardDO" },
+      { "name": "REGISTRY", "class_name": "RegistryDO" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WardDO", "RegistryDO"] }],
+  "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "ward-host-images" }],
+  // The suites sign in as each ward's owner, which a production host leaves off (src/host.ts).
+  // The seal key is generated per run by test/helpers/harness.js (TEST_SEAL_KEY), not kept here.
+  "vars": { "NODE_ENV": "development", "WARD_OWNER_SIGNIN": "on" }
+}

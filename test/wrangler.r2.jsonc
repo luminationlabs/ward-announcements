@@ -1,0 +1,14 @@
+{
+  // The template config plus an R2 bucket, for `npm run test:worker`: the template stores images in
+  // D1, so without this the R2 store a production deployment binds would go untested. Local only —
+  // `wrangler dev` simulates the bucket; nothing here is ever deployed.
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "ward-app-r2-test",
+  "main": "../src/worker.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": { "directory": "../public", "binding": "ASSETS", "run_worker_first": true },
+  "d1_databases": [{ "binding": "DB", "database_name": "ward-app" }],
+  "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "ward-app-images" }],
+  "vars": { "NODE_ENV": "development" }
+}

@@ -1,0 +1,3363 @@
+:root {
+  --bg: #f3f4f6;
+  --card: #ffffff;
+  --ink: #1f2937;
+  --muted: #6b7280;
+  --brand: #1f3a5f;
+  --brand-ink: #ffffff;
+  --border: #e5e7eb;
+  --accent: #2563eb;
+  /* The accent as a *fill* behind white text (primary buttons). Light mode uses the accent itself;
+     dark mode lightens --accent for links and rings on a dark card, which white text could not sit
+     on, so the fill keeps its own value. */
+  --accent-fill: #2563eb;
+  --on-accent: #ffffff;
+  /* The plain button's fill, and the round close button on a sheet. */
+  --btn-bg: #f9fafb;
+  --control-bg: #f3f4f6;
+  /* The selected tab of the segmented control. */
+  --tab-active: var(--brand);
+  /* The "New" pill on an announcement. */
+  --new-bg: #dbeafe;
+  --new-ink: #1d4ed8;
+  /* The one-time "Added to Home Screen" banner. */
+  --success-bg: #ecfdf5;
+  --success-border: #a7f3d0;
+  --success-ink: #065f46;
+  --shadow: rgba(0, 0, 0, 0.04);
+  --backdrop: rgba(0, 0, 0, 0.45);
+}
+
+/* Dark mode, for the member-facing pages only: the app shell and the gate page. Members read the
+   program in a dim chapel, where a white page is a lamp. The admin pages (`body.admin`) keep the
+   light palette — they are a clerk's desk tool, and their many one-off colours were never drawn for
+   a dark ground. Only tokens change here, so every rule above and below keeps working; the few
+   things a token can't reach follow at the end of the file.
+
+   The header stays the brand navy, a step deeper, and the body is still that navy (see the iOS
+   status-bar note below) — the bar and the header remain one block in either scheme. Contrast is
+   WCAG AA or better throughout: body text 13:1 on a card, muted 6.6:1, links 7.4:1, white on the
+   primary button 5.2:1, the New pill 7:1.
+
+   Keyed on `<html data-theme="dark">`, not on a media query: a member can pick Auto, Light or Dark
+   (the switch at the foot of the page), and a small inline script in each page's <head>
+   (src/theme.ts) resolves that choice — Auto reading `prefers-color-scheme`, live — and writes the
+   result there before the first paint. One attribute, so these rules exist once rather than once
+   inside a dark media query and again for a manual Dark. */
+:root[data-theme="dark"] body:not(.admin) {
+  color-scheme: dark;
+  --bg: #0f1419;
+  --card: #1a2029;
+  --ink: #e5e9f0;
+  --muted: #9ba5b4;
+  --brand: #172c48;
+  --brand-ink: #ffffff;
+  --border: #2e3744;
+  --accent: #7cb0ff;
+  --accent-fill: #2563eb;
+  --btn-bg: #232a35;
+  --control-bg: #2a323e;
+  --tab-active: #2f5486;
+  --new-bg: #1e3350;
+  --new-ink: #9cc3ff;
+  --success-bg: #0d2b22;
+  --success-border: #1d5a45;
+  --success-ink: #9ee6c4;
+  --shadow: rgba(0, 0, 0, 0);
+  --backdrop: rgba(0, 0, 0, 0.6);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+/* The body is navy and <main> paints the grey. Since iOS 26 the installed app's status bar is
+   tinted from <body>'s computed background-color (theme-color, the manifest colours and the
+   html canvas are all ignored — verified on a 26.5 simulator by others; it came out page-grey here),
+   and every page starts with the navy .site-header, so this makes the bar and the header one
+   block. The flex column lets <main> stretch so short pages stay grey to the bottom. */
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--brand);
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.site-header {
+  background: var(--brand);
+  color: var(--brand-ink);
+  padding: 0.75rem 1rem 0;
+  /* Added to the inset rather than max()'d with it: since iOS 26 the system's status-bar band
+     bleeds a row or two below the inset and blurs whatever sits there, so the title needs to start
+     clear of that edge. In a browser tab the inset is 0 and this is the same 0.75rem as before. */
+  padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+}
+
+.site-header h1 {
+  margin: 0;
+  padding: 0.75rem 0;
+  font-size: 1.25rem;
+  text-align: center;
+}
+
+main {
+  flex: 1;
+  background: var(--bg);
+  /* Full width so the grey reaches both edges; the content column is centred with padding
+     (608px content = a 640px column minus its 1rem sides). */
+  padding: 1rem max(1rem, calc((100% - 608px) / 2));
+}
+
+h2 {
+  font-size: 1.05rem;
+  margin: 0 0 0.5rem;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 1px 2px var(--shadow);
+}
+
+.card.install {
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+
+.card.install ol {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.card.install li {
+  margin-bottom: 0.4rem;
+}
+
+.status {
+  margin: 0 0 0.75rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--ink);
+  font-size: 1rem;
+  padding: 0.6rem 1rem;
+  border-radius: 10px;
+  cursor: pointer;
+  min-height: 44px;
+  text-decoration: none;
+}
+
+.btn.primary {
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+/* A secondary action standing beside a primary one. The plain .btn — grey fill, ink text — reads
+   as *disabled* next to a filled primary, so this borrows the accent for its text and border:
+   unmistakably tappable, still visibly the lesser of the two. */
+.btn.secondary {
+  background: var(--card);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.announcement {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.announcement h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1.05rem;
+}
+
+/* "New": an announcement this phone hasn't shown before (app.js, newAnnouncementTags). Small and
+   quiet on purpose — a hint beside the title, not a badge competing with it. */
+.new-tag {
+  display: inline-block;
+  vertical-align: 0.12em;
+  margin-left: 0.15rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--new-bg);
+  color: var(--new-ink);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* A resource page: the announcement card with its title as a disclosure. The marker sits at the
+   end of the line so the titles line up like a table of contents, and the whole summary is the
+   tap target (44px, the iOS minimum). */
+.resource {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0 1rem;
+  margin-bottom: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.resource > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 44px;
+  padding: 0.6rem 0;
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.resource > summary::-webkit-details-marker {
+  display: none;
+}
+
+.resource > summary::after {
+  content: '';
+  flex: 0 0 auto;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  margin-right: 0.25rem;
+  transition: transform 0.15s ease;
+}
+
+.resource[open] > summary::after {
+  transform: rotate(-135deg);
+}
+
+.resource[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.resource > .body {
+  padding: 0.6rem 0 0.9rem;
+}
+
+.resource a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.announcement p.body {
+  margin: 0 0 0.5rem;
+}
+
+.announcement a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+/* Optional configured link below the announcements (LINK_TEXT + LINK_URL) */
+.more-link {
+  margin: 1rem 0 0;
+  text-align: center;
+  font-size: 0.95rem;
+}
+
+.more-link a {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Pass-it-on control: a quiet text row under the announcements, not a card. Kept visually below
+   the configured ward link above it — that's a destination, this is an occasional errand. */
+.invite-row {
+  margin: 1.25rem 0 0;
+  text-align: center;
+}
+
+.invite-btn {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.9rem;
+  /* Comfortable tap target without drawing a box around it. */
+  padding: 0.5rem 0.75rem;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.invite-btn:hover {
+  color: var(--ink);
+}
+
+.invite-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.invite-icon {
+  flex: none;
+  opacity: 0.8;
+}
+
+.hint {
+  color: var(--muted);
+  font-weight: normal;
+}
+
+/* Appearance switch: a small segmented control at the foot of the page, quieter than the share row
+   above it. A miniature of the tab bar (a card-coloured strip), but the chosen option is a grey
+   chip in ink rather than the tabs' navy, so it never competes with them. Each button keeps a 44px tap height without looking like a big control. */
+.appearance-row {
+  margin: 0.75rem 0 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.appearance-row[hidden] {
+  display: none;
+}
+
+.appearance-options {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+
+.appearance-btn {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  padding: 0 0.7rem;
+  min-height: 30px;
+  border-radius: 6px;
+  cursor: pointer;
+  position: relative;
+}
+
+/* Tap target taller than the chip: the control looks 30px, the finger gets 44. */
+.appearance-btn::after {
+  content: "";
+  position: absolute;
+  inset: -7px 0;
+}
+
+.appearance-btn:hover {
+  color: var(--ink);
+}
+
+.appearance-btn[aria-pressed="true"] {
+  background: var(--control-bg);
+  color: var(--ink);
+}
+
+.appearance-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.site-footer {
+  /* Same grey and padding-centring as <main>, since the body behind both is navy. */
+  background: var(--bg);
+  padding: 1.5rem max(1rem, calc((100% - 608px) / 2)) calc(1.5rem + env(safe-area-inset-bottom));
+  text-align: center;
+  font-size: 0.8rem;
+}
+
+/* Brief highlight on the notification card when a #install deep-link lands on a browser that can
+   subscribe without installing (see focusSubscribe in install.js). */
+.card.attention {
+  animation: attention-pulse 1.2s ease 2;
+}
+
+@keyframes attention-pulse {
+  0%,
+  100% {
+    box-shadow: 0 1px 2px var(--shadow);
+  }
+  30% {
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.5);
+  }
+}
+
+/* Admin page */
+.admin-form label {
+  display: block;
+  font-weight: 600;
+  margin: 0.75rem 0 0.25rem;
+}
+
+.admin-form input,
+.admin-form textarea {
+  width: 100%;
+  font-size: 1rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-family: inherit;
+}
+
+.admin-form textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+/* iOS Safari draws a date input its own way: a grey pill with an intrinsic minimum width that
+   ignores `width: 100%`, so it ran past the card's right edge, and an empty one collapsed to a blank
+   grey box. Taking away the native appearance makes it an ordinary field like the others; tapping
+   still opens the date picker. The min-height keeps an empty one the height of a filled one. */
+.admin-form input[type='date'] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  min-height: 2.6rem;
+  background: var(--card);
+  color: var(--ink);
+}
+
+.admin-form input[type='date']::-webkit-date-and-time-value {
+  text-align: left;
+}
+
+/* Hint text belongs to the field above it, so keep it tucked under that field and let the next
+   label's own margin open the gap. With the browser's default 1em on both sides it floated
+   equidistant between the two and read as though it introduced the field below. */
+.admin-form > p {
+  margin: 0.4rem 0 0;
+}
+
+/* Buttons get room from whatever precedes them; a bare `.actions` sat flush against hint text. */
+.admin-form .actions {
+  margin-top: 1rem;
+}
+
+/* A form that is itself a divider row already has its gap from `padding-top`; without this the
+   button's own margin stacks on top and the last row sits lower than every row above it. */
+.access-disable .actions {
+  margin-top: 0;
+}
+
+.ok {
+  color: #047857;
+}
+
+.err {
+  color: #b91c1c;
+}
+
+/* Announcement body (rendered Markdown). Every rule here also reaches the visual editor's content
+   area, and the program rules below reach the program editor's: the editor draws its document in a
+   `.editor-preview` box outside the public card, and an editor that misses the body's own spacing
+   is showing something other than what members will see. The marker classes are on the editor
+   forms. */
+:is(.announcement .body, .resource .body, .announcement-editor .editor-preview) p {
+  margin: 0 0 0.5rem;
+}
+
+:is(.announcement .body, .resource .body, .announcement-editor .editor-preview) p:last-child {
+  margin-bottom: 0;
+}
+
+/* Two or more blank lines in the source open a gap above the next block, one step per blank line
+   beyond the first, capped at three (the `gap-N` class comes from src/markdown.ts). Scoped like the
+   rules around it so it outranks their own margins. */
+:is(.announcement .body, .resource .body, .announcement-editor .editor-preview) .gap-1 { margin-top: 1.5rem; }
+:is(.announcement .body, .resource .body, .announcement-editor .editor-preview) .gap-2 { margin-top: 3rem; }
+:is(.announcement .body, .resource .body, .announcement-editor .editor-preview) .gap-3 { margin-top: 4.5rem; }
+
+:is(.announcement .body, .resource .body, .announcement-editor .editor-preview) ul,
+:is(.announcement .body, .resource .body, .announcement-editor .editor-preview) ol {
+  margin: 0.25rem 0 0.5rem;
+  padding-left: 1.25rem;
+}
+
+:is(.announcement .body, .resource .body, .announcement-editor .editor-preview) a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+/* A long unbroken run — a pasted URL or an email address, which linkify turns into a single
+   unbreakable <a> — would otherwise reach past the card and set the whole page scrolling
+   sideways on a phone. Wrap rather than truncate: a member has to be able to read and tap the
+   whole link. `anywhere` (not `break-word`) so the break also counts against min-content width. */
+:is(.announcement .body, .resource .body, .announcement-editor .editor-preview),
+.announcement h3,
+.sheet .rendered {
+  overflow-wrap: anywhere;
+}
+
+/* An indented paste becomes a Markdown code block, and its `white-space: pre` ignores the wrap
+   above. Give it its own scroll axis instead of letting it widen the page. */
+:is(.announcement .body, .resource .body, .announcement-editor .editor-preview) pre,
+.sheet .rendered pre {
+  overflow-x: auto;
+}
+
+/* Admin chrome */
+.admin-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  /* The shared .site-header has 0 bottom padding (the public page's <h1> supplies its own).
+     The admin bar has no <h1>, so add matching vertical breathing room around the controls. */
+  padding-bottom: 0.75rem;
+}
+
+.admin-bar form {
+  margin: 0;
+}
+
+.admin-bar-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.admin-home {
+  color: var(--brand-ink);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.section-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* The rich text preview (dashboard modal and /admin/announcements/preview). The block is styled
+   inline for the paste's sake; this only frames it so it reads as "the thing you are about to copy". */
+.preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0;
+}
+/* Turns beside the status text while the PDF tools download and the file is built. */
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border, #d8dde6);
+  border-top-color: var(--brand, #1f3a5f);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+}
+.spinner[hidden] {
+  display: none;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 2s; }
+}
+.preview-block {
+  border: 1px solid var(--border, #d8dde6);
+  border-radius: 10px;
+  padding: 0.25rem 1rem 0.75rem;
+  background: #fff;
+  color: #111;
+}
+
+.btn.small {
+  min-height: 36px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.9rem;
+}
+
+.btn.danger {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.inline-form {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+
+.checkbox input {
+  width: auto;
+}
+
+/* Weekly message and ward settings: condensed to a summary by default, expanding to the full form
+   to customize. Both are settings an admin touches once and then leaves alone, so neither should
+   take up room above the content it governs. */
+.weekly-message > summary,
+.ward-settings > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.weekly-message > summary {
+  margin-top: 0.75rem;
+}
+
+.weekly-message[open] > summary,
+.ward-settings[open] > summary {
+  margin-bottom: 0.5rem;
+}
+
+/* The content policy's list is the longest thing on the dashboard when open, so its items get more
+   room than a normal list — it is read a rule at a time, not skimmed. */
+.policy-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.policy-list li {
+  margin-bottom: 0.6rem;
+}
+
+.policy-list li:last-child {
+  margin-bottom: 0;
+}
+
+/* The dot-leader syntax note above the program editor. Boxed rather than loose muted text: it is a
+   worked example a clerk copies from, not background prose. */
+.leader-hint {
+  border-left: 3px solid var(--border);
+  padding: 0.15rem 0 0.15rem 0.6rem;
+  margin: 0 0 0.5rem;
+}
+
+.leader-hint code {
+  background: var(--bg);
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+}
+
+/* "Unsaved changes … were kept on this device" (editor/index.js). */
+.draft-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #fcd34d;
+  border-radius: 10px;
+  background: #fffbeb;
+}
+
+.draft-banner span {
+  flex: 1 1 16rem;
+}
+
+/* "Copy last program" on the New program page. */
+.copy-offer {
+  margin: 0 0 0.5rem;
+}
+
+/* --- The visual editor (editor/index.js) ----------------------------------
+
+   Its content area carries `.editor-preview`, so inside `.announcement-editor` / `.program-editor`
+   every rule that lays out the members' page — paragraph spacing, headings, centered lines, the
+   program rows and their dots — lays out the editor too. What is here is only the frame: the
+   toolbar, the box, the placeholders, and the Markdown view. */
+.wysiwyg {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+/* The box is the field, in both modes: one focus ring around all of it. A ring on the textarea
+   itself had its top edge hidden under the sticky toolbar, so the Markdown view looked cut off. */
+.wysiwyg:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 0.15);
+}
+
+.wysiwyg .wysiwyg-source:focus {
+  outline: none;
+}
+
+/* Pinned while scrolling through a long program, so the buttons stay in reach. `--vv-top` is the
+   visible window's offset while a phone keyboard is up (set by editor/index.js); 0 otherwise. No
+   status-bar allowance: measured on an iPhone, the top Safari pins to already sits below the status
+   bar. A toolbar hidden behind the clock is the keyboard case, which `--vv-top` handles. */
+.wysiwyg-toolbar {
+  position: sticky;
+  top: var(--vv-top, 0px);
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  /* Space between groups; the buttons inside one sit closer (see .group). */
+  gap: 0.25rem 0.6rem;
+  padding: 0.35rem;
+  border-bottom: 1px solid var(--border);
+  border-radius: 10px 10px 0 0;
+  background: var(--bg);
+}
+
+.wysiwyg-toolbar button {
+  min-height: 2.25rem;
+  padding: 0 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+/* Hover only where something can hover. On a touch screen Safari applies :hover on a tap and keeps
+   it until the next tap elsewhere, and this style is close enough to `.is-active` that a button
+   just tapped looked switched on. */
+@media (hover: hover) {
+  .wysiwyg-toolbar button:hover:not(:disabled) {
+    background: var(--card);
+    border-color: var(--border);
+  }
+}
+
+/* Keyboard focus: a ring outside the button, unlike any button state. Never shown for a tap or click. */
+.wysiwyg-toolbar button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.wysiwyg-toolbar button.is-active {
+  background: var(--card);
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.wysiwyg-toolbar :disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.wysiwyg-toolbar svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+.wysiwyg-toolbar .group {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.1rem;
+}
+
+.wysiwyg-toolbar .mode {
+  margin-left: auto;
+  border-color: var(--border);
+  background: var(--card);
+}
+
+/* A phone has room for about a third of the buttons. They wrap rather than scroll sideways, so
+   every control the help text names is in sight, and sit tighter so the wrapped toolbar takes as
+   few rows as it can over the text being edited. */
+@media (max-width: 759px) {
+  .wysiwyg-toolbar {
+    gap: 0.15rem 0.35rem;
+    padding: 0.25rem;
+  }
+
+  .wysiwyg-toolbar button {
+    min-height: 2.5rem;
+    padding: 0 0.4rem;
+  }
+}
+
+.wysiwyg-content {
+  min-height: 14rem;
+  padding: 0.75rem 1rem;
+  outline: none;
+  overflow-wrap: anywhere;
+}
+
+.program-editor .wysiwyg-content {
+  min-height: 24rem;
+}
+
+/* The empty-document prompt (on a lone empty line only — an empty line among others is a gap) and
+   the prompts in an empty row's cells. */
+.wysiwyg-content > p.is-empty:only-child::before,
+.wysiwyg-content .leader .is-empty::before {
+  content: attr(data-placeholder);
+  color: var(--muted);
+  opacity: 0.7;
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+.wysiwyg-content .leader .is-empty::before {
+  float: none;
+  height: auto;
+}
+
+.wysiwyg-content hr {
+  margin: 1rem 0;
+}
+
+.wysiwyg-content hr.ProseMirror-selectednode {
+  outline: 2px solid var(--accent);
+}
+
+.admin-form .wysiwyg textarea.wysiwyg-source {
+  min-height: 16rem;
+  border: 0;
+  border-radius: 0 0 10px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.wysiwyg-notice {
+  margin: 0;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--border);
+}
+
+/* Radio group: "When tapped, open …" on the send form */
+.link-choice {
+  border: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  min-width: 0;
+}
+
+.link-choice legend {
+  font-weight: 600;
+  padding: 0;
+}
+
+.admin-form .link-choice label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-weight: 500;
+  margin: 0.4rem 0 0;
+}
+
+/* The radio sits on the first line of its label, not mid-way down a three-line one (the
+   "Who is signed out" choices on Issue a New Code run long). */
+.admin-form .link-choice label input {
+  width: auto;
+  margin-top: 0.35em;
+}
+
+.link-choice .custom-url {
+  margin-top: 0.5rem;
+}
+
+.link-choice .custom-url:disabled {
+  background: #f3f4f6;
+  color: var(--muted);
+}
+
+.link-choice .custom-url-hint {
+  margin: 0.3rem 0 0;
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+.flash {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #065f46;
+}
+
+.card.warn {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+  font-weight: 600;
+}
+
+/* One-time "Added to Home Screen" banner */
+.success-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  background: var(--success-bg);
+  border-color: var(--success-border);
+  color: var(--success-ink);
+}
+
+/* `display: flex` above would override the [hidden] attribute; keep [hidden] authoritative. */
+.success-banner[hidden] {
+  display: none;
+}
+
+.banner-close {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--success-ink);
+  cursor: pointer;
+  padding: 0 0.25rem;
+}
+
+/* Dismissible cards (install + notifications): collapse to a one-line "show" stub the user can
+   tap to bring the card back. State is remembered in localStorage (see app.js). */
+.card.dismissible {
+  position: relative;
+}
+
+/* Both dismissible cards are *app-level* chrome — installing, turning notifications on — sitting
+   above the program and the announcements, which is what nearly every visit came for. So they're
+   deliberately quieter and shorter than a content card: a small heading rather than a card title,
+   body copy a size down, and a compact button. Scoped to `.card.dismissible` (only these two
+   sections carry it) so the admin pages, the gate page and the announcement cards keep the
+   full-size shape — and kept above `.card.is-dismissed` below, which must still win with
+   `padding: 0` on the collapsed stub. */
+.card.dismissible {
+  padding: 0.65rem 0.8rem;
+  margin-bottom: 0.6rem;
+}
+
+.card.dismissible h2 {
+  font-size: 0.95rem;
+  margin: 0 0 0.15rem;
+  padding-right: 2rem; /* clear of the × in the corner */
+}
+
+.card.dismissible .status,
+.card.dismissible #install-sub {
+  font-size: 0.85rem;
+  margin: 0 0 0.5rem;
+}
+
+.card.dismissible .actions {
+  gap: 0.4rem;
+}
+
+.card.dismissible .btn {
+  position: relative;
+  font-size: 0.875rem;
+  padding: 0.35rem 0.8rem;
+  min-height: 36px;
+}
+
+/* The visible button is under 44px, so it grows an invisible collar that puts the tap target
+   back over 44px (36 + 5 + 5). 5px is under the 0.4rem `.actions` gap, so two buttons that wrap
+   onto separate lines still get their own collars rather than overlapping ones. */
+.card.dismissible .btn::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -5px;
+  bottom: -5px;
+}
+
+.card-dismiss {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.5rem;
+  background: none;
+  border: none;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0.1rem 0.4rem;
+}
+
+.card.is-dismissed {
+  padding: 0;
+}
+
+.card.is-dismissed .card-body,
+.card.is-dismissed .card-dismiss {
+  display: none;
+}
+
+.card-restore {
+  display: none;
+}
+
+.card.is-dismissed .card-restore {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.7rem 1rem;
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.card-restore .restore-hint {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.85rem;
+}
+
+/* "Already added it?" hint on the iOS install card */
+.install-secondary {
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+
+/* Android-only "Unsafe app blocked" reassurance on the install card */
+.install-android-note {
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border);
+}
+
+.install-android-note summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.install-android-note p {
+  margin: 0.3rem 0 0;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.admin-table th {
+  text-align: left;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  padding: 0 0.5rem 0.4rem 0;
+}
+
+.admin-table td {
+  border-top: 1px solid var(--border);
+  padding: 0.6rem 0.5rem 0.6rem 0;
+  vertical-align: top;
+}
+
+.qr {
+  margin: 0.75rem 0;
+}
+
+/* The label and its two format buttons on one baseline, wrapping together on a narrow phone. */
+.qr-downloads {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.qr svg {
+  width: 208px;
+  height: 208px;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-table tr:first-child td {
+  border-top: none;
+}
+
+.row-actions {
+  display: flex;
+  gap: 0.4rem;
+  justify-content: flex-end;
+  align-items: flex-start;
+}
+
+.row-actions form {
+  margin: 0;
+}
+
+/* Drop the cell's right padding so the action buttons sit flush at the card's content edge,
+   lining up with the "+ New" button in the section header above. */
+.admin-table td.row-actions {
+  padding-right: 0;
+}
+
+/* Drag-to-reorder handle on the announcements list */
+.drag-cell {
+  width: 1.5rem;
+  vertical-align: middle;
+}
+
+.drag-handle {
+  cursor: grab;
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  user-select: none;
+  touch-action: none; /* let SortableJS own touch drags — no page scroll while dragging */
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.sortable-ghost {
+  opacity: 0.4;
+}
+
+.sortable-chosen {
+  background: #f9fafb;
+}
+
+/* Rendered Markdown inside the preview modal (reuses the install .sheet styles) */
+#ann-modal-close {
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.sheet .rendered p {
+  margin: 0 0 0.5rem;
+}
+
+.sheet .rendered p:last-child {
+  margin-bottom: 0;
+}
+
+.sheet .rendered ul,
+.sheet .rendered ol {
+  margin: 0.25rem 0 0.5rem;
+  padding-left: 1.25rem;
+}
+
+.sheet .rendered a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+.badge.live {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.badge.hidden {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.badge.expired {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* Passkey sign-in: the owner's password folded under the passkey button (views.ts `loginPage`). */
+.owner-login {
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}
+
+.owner-login summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* The People card and a person's page. */
+.people-list,
+.passkey-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+}
+
+.people-list li,
+.passkey-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.6rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.passkey-list li span {
+  flex: 1 1 12rem;
+}
+
+.passkey-list form {
+  margin: 0;
+}
+
+.admin-form #person_role {
+  width: 100%;
+}
+
+.people-add-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.admin-form select {
+  /* A select sizes itself to its longest option and will not shrink below it, so the person page's
+     "Admin — everything, including settings and people" pushed the page sideways on a phone. */
+  max-width: 100%;
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.share-link {
+  display: inline-block;
+  word-break: break-all;
+  background: #f3f4f6;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.9rem;
+}
+
+.send-log {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.send-log li {
+  margin-bottom: 0.3rem;
+}
+
+.send-log summary {
+  cursor: pointer;
+}
+
+.send-log .send-body {
+  margin: 0.4rem 0 0.2rem;
+  padding: 0.5rem 0.7rem;
+  background: #f9fafb;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  white-space: pre-wrap;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+/* Install bottom-sheet */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--backdrop);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 1000;
+  animation: sheet-fade 0.2s ease;
+}
+
+/* `display: flex` above would otherwise override the [hidden] attribute, leaving the sheet
+   permanently visible and un-closable. Keep [hidden] authoritative. */
+.sheet-backdrop[hidden] {
+  display: none;
+}
+
+.sheet {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  background: var(--card);
+  border-radius: 20px 20px 0 0;
+  padding: 0.5rem 1.25rem calc(1.5rem + env(safe-area-inset-bottom));
+  box-shadow: 0 -6px 28px rgba(0, 0, 0, 0.22);
+  max-height: 88vh;
+  overflow-y: auto;
+  animation: sheet-up 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sheet-handle {
+  width: 40px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border);
+  margin: 0.4rem auto 0.9rem;
+}
+
+.sheet-close {
+  position: absolute;
+  top: 0.8rem;
+  right: 0.9rem;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 999px;
+  background: var(--control-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.sheet h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.2rem;
+}
+
+.install-steps-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+
+.install-steps-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.7rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.install-steps-list li:first-child {
+  border-top: none;
+}
+
+.install-steps-list img {
+  flex: 0 0 auto;
+  width: 48px;
+  height: auto;
+  max-height: 96px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+/* iOS 26 step screenshots: caption above, larger image below */
+.shot-steps {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+
+.shot-steps li {
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.shot-steps li:first-child {
+  border-top: none;
+}
+
+.shot-steps span {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.shot-steps .shot {
+  display: block;
+  width: 100%;
+  max-width: 300px;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+@keyframes sheet-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-backdrop,
+  .sheet,
+  .card.attention {
+    animation: none;
+  }
+}
+
+/* --- Invite sheet (member "share with a friend") --------------------------- */
+
+/* Bigger and centred inside the sheet: this QR is meant to be scanned off the phone screen
+   someone is holding up, not glanced at like the admin dashboard's reference copy. */
+#share-qr {
+  display: flex;
+  justify-content: center;
+}
+
+#share-qr svg {
+  width: 240px;
+  height: 240px;
+  padding: 8px;
+}
+
+/* The clipboard fallback drops the raw URL into these buttons (the share sheet's, and the install
+   sheet's copy-a-link escape from in-app browsers), which would otherwise blow out the sheet's
+   width on a phone. */
+#share-copy,
+.copy-link {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/* The gate page's "Paste your ward link" field, shown only inside an installed app (src/views.ts). */
+.gate-paste label {
+  display: block;
+  font-weight: 600;
+  margin: 0.75rem 0 0.35rem;
+}
+
+.gate-paste-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.gate-paste input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  font: inherit;
+  /* 16px or more, or iOS zooms the page in when the field takes focus. */
+  font-size: 1rem;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.45rem 0.7rem;
+}
+
+.gate-paste input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* --- Admin: access code rotation ------------------------------------------ */
+
+/* The gate controls stack as a run of collapsed rows, so they carry their own rhythm: an even
+   gap above each divider and a matching one below the summary, rather than sitting flush. The
+   trailing "turn off" form is a bare <form>, not a <details>, but belongs to the same run. */
+.access-rotate,
+.access-history,
+.access-settings,
+.access-signout,
+.access-disable {
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+
+.access-rotate summary,
+.access-history summary,
+.access-settings summary,
+.access-signout summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+/* Only when open — a closed row's spacing comes from the next divider. */
+.access-rotate[open] > summary,
+.access-history[open] > summary,
+.access-settings[open] > summary,
+.access-signout[open] > summary {
+  margin-bottom: 0.75rem;
+}
+
+.code-history {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+}
+
+.code-history li {
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+.code-history li:first-child {
+  border-top: 0;
+}
+
+/* --- Skipped Sundays -------------------------------------------------------- */
+
+/* Same shape as `.code-history`: a plain list of rows separated by rules, each with its control on
+   the right. Kept separate rather than folded into that class because these rows carry a date, an
+   optional note and a button, and share only the frame. */
+.skip-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+}
+
+.skip-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+.skip-list li:first-child {
+  border-top: 0;
+}
+
+/* The Remove button sits hard right, so a column of them lines up whatever the notes are. */
+.skip-list form.inline {
+  margin-left: auto;
+}
+
+.skip-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem;
+  margin-top: 0.9rem;
+}
+
+.skip-add label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* Grows to take the leftover width, so the note field is usable on a phone rather than a stub. */
+.skip-add label:nth-of-type(2) {
+  flex: 1 1 12rem;
+}
+
+/* A skipped Sunday is a quieter row than a real send: it reports an absence. */
+.send-log li.send-skipped {
+  font-style: italic;
+}
+
+/* --- Announcement images --------------------------------------------------- */
+
+/* A wrapping row of thumbnails under an announcement's text. Fixed height rather than fixed width
+   so portrait and landscape flyers line up along one baseline; `cover` crops rather than letterboxes,
+   and the full image is one tap away. */
+.thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.thumb {
+  appearance: none;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: none;
+  line-height: 0;
+  cursor: pointer;
+}
+
+.thumb img {
+  display: block;
+  max-height: 140px;
+  /* Wide enough to keep a panorama from stretching the row, narrow enough that two portrait
+     flyers still fit side by side on a phone. */
+  max-width: 45vw;
+  object-fit: cover;
+}
+
+/* Full-screen viewer. `hidden` does the hiding, so nothing here needs a display toggle. */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.85);
+  /* The whole backdrop is the close target (see app.js), so make it obvious it is pressable. */
+  cursor: zoom-out;
+}
+
+.lightbox[hidden] {
+  display: none;
+}
+
+.lightbox-img {
+  max-width: 92vw;
+  max-height: 92vh;
+  object-fit: contain;
+  border-radius: 8px;
+  cursor: default;
+}
+
+.lightbox-close {
+  position: absolute;
+  /* Clear of the notch/status bar on an installed iOS app, where there is no browser chrome. */
+  top: calc(0.75rem + env(safe-area-inset-top));
+  right: 0.75rem;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 1.6rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* --- Admin: image attachments ---------------------------------------------- */
+
+.attachment-grid {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.attachment {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 140px;
+}
+
+.attachment img {
+  display: block;
+  max-width: 140px;
+  max-height: 140px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.attachment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+/* The image picker: the file input itself is visually hidden (still in the tab order, still what
+   iOS opens the photo picker from), and its label is drawn as the button. Keyboard focus on the
+   input shows on the label; a full list disables the input, and the label says so. */
+.file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.file-button {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 600;
+}
+
+.file-input:focus-visible + .file-button {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.file-input:disabled + .file-button {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* --- Program | Announcements tabs ---------------------------------------- */
+
+/* A segmented control rather than underlined tabs: two large, obviously-pressable halves, which is
+   what a thumb wants on a phone held one-handed in a chapel. */
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.25rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 1px 2px var(--shadow);
+}
+
+.tab {
+  flex: 1 1 0;
+  appearance: none;
+  border: 0;
+  background: none;
+  border-radius: 9px;
+  padding: 0.55rem 0.5rem;
+  min-height: 44px; /* the iOS minimum touch target */
+  font: inherit;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.tab.is-active {
+  background: var(--tab-active);
+  color: var(--brand-ink);
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* A panel is focusable (tabindex="0") so Tab from the tab list lands on the content it selected;
+   the ring shows only for keyboard focus, never after a tap. */
+.panel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 12px;
+}
+
+/* --- Sacrament meeting program ------------------------------------------- */
+
+.program {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 1px 2px var(--shadow);
+  overflow-wrap: anywhere;
+}
+
+.program-date {
+  margin: 0 0 0.85rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+  font-size: 1.05rem;
+}
+
+:is(.program .body, .program-editor .editor-preview) p {
+  margin: 0 0 0.5rem;
+}
+
+:is(.program .body, .program-editor .editor-preview) p:last-child {
+  margin-bottom: 0;
+}
+
+/* Headings are the program's section markers, and the levels mean spacing, not size: every level is
+   the same bold line at body size, but `##` opens a meeting section (generous space above, so the
+   author never needs a `&nbsp;` spacer line) and `###` labels the smaller footer blocks (Meeting
+   Info, classroom assignments). `#` is a title, rarely needed since the date already is one. The
+   deeper levels are pinned too, so a stray extra `#` never drops to the browser's small default.
+   Alignment is the author's call, not the level's: a heading is left-aligned like any Markdown
+   heading, and `## -> Title <-` centers it through the shared `.centered` class (src/markdown.ts). */
+:is(.program .body, .program-editor .editor-preview) h1,
+:is(.program .body, .program-editor .editor-preview) h2,
+:is(.program .body, .program-editor .editor-preview) h3,
+:is(.program .body, .program-editor .editor-preview) h4,
+:is(.program .body, .program-editor .editor-preview) h5,
+:is(.program .body, .program-editor .editor-preview) h6 {
+  margin: 1rem 0 0.4rem;
+  font-size: 1rem;
+}
+
+:is(.program .body, .program-editor .editor-preview) h1 {
+  margin-top: 1.5rem;
+  font-size: 1.15rem;
+}
+
+:is(.program .body, .program-editor .editor-preview) h2 {
+  margin-top: 1.75rem;
+}
+
+/* `---` is the hard break between the program proper and the standing footer (meeting times, class
+   rooms). Fainter than the card border and with clearly more air than any heading, so it reads as
+   "the meeting ends here" without drawing the eye. */
+:is(.program .body, .program-editor .editor-preview) hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  opacity: 0.5;
+  margin: 2.5rem 0;
+}
+
+/* The blank-line gap (see the announcement rules of the same name). Headings already stand off
+   from what precedes them, so on those each step is added on top rather than swallowed. */
+:is(.program .body, .program-editor .editor-preview) .gap-1 { margin-top: 1.5rem; }
+:is(.program .body, .program-editor .editor-preview) .gap-2 { margin-top: 3rem; }
+:is(.program .body, .program-editor .editor-preview) .gap-3 { margin-top: 4.5rem; }
+
+:is(.program .body, .program-editor .editor-preview) h1.gap-1 { margin-top: 2.5rem; }
+:is(.program .body, .program-editor .editor-preview) h1.gap-2 { margin-top: 4rem; }
+:is(.program .body, .program-editor .editor-preview) h1.gap-3 { margin-top: 5.5rem; }
+
+:is(.program .body, .program-editor .editor-preview) h2.gap-1 { margin-top: 2.75rem; }
+:is(.program .body, .program-editor .editor-preview) h2.gap-2 { margin-top: 4.25rem; }
+:is(.program .body, .program-editor .editor-preview) h2.gap-3 { margin-top: 5.75rem; }
+
+:is(.program .body, .program-editor .editor-preview) a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+:is(.program .body, .program-editor .editor-preview) pre {
+  overflow-x: auto;
+}
+
+/* Shown when the window is shut, or when nobody wrote a program for today — and on the
+   Announcements tab when none are live. Deliberately quiet and centered — there is nothing to do
+   here, so it should read as a note, not as an error card. */
+.program-closed,
+.empty-note {
+  max-width: 22rem;
+  margin: 2.5rem auto;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* The dashboard's program preview modal: the public page's grey behind the program card, so the
+   card reads as it will on the Program tab. A thumbnail there is a link, not a button. */
+.program-stage {
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 1rem 0.75rem 0;
+}
+
+a.thumb {
+  display: inline-block;
+}
+
+/* --- Centered lines ------------------------------------------------------- */
+
+/* `-> Sacrament Meeting <-` on its own line. The markup comes from the center block rule in
+   src/markdown.ts, which wraps the line's inline content in this class and never interpolates the
+   admin's text. Unscoped on purpose: both renderers understand the syntax, so it has to land the
+   same way in an announcement body, a program body and the admin editor's preview. */
+.centered {
+  text-align: center;
+}
+
+/* --- Dot-leader rows ------------------------------------------------------ */
+
+/* `Opening Hymn ... #19` renders as one row: label left, name right, dots filling the gap — the way
+   it reads on the printed program. The markup comes from the dot-leader block rule in
+   src/markdown.ts, which emits these three spans itself and never interpolates the admin's text. */
+.leader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.4rem;
+  margin: 0.3rem 0;
+}
+
+/* Neither side shrinks. A row that is too narrow for both is not squeezed — it wraps, and only the
+ * value moves: `flex-wrap` above lets the right-hand side drop to a line of its own under the dots,
+ * where `margin-left: auto` keeps it against the right edge. So on a phone
+ *
+ *   Opening Hymn ......................
+ *              #140 "Did You Think to Pray"
+ *
+ * rather than "Opening / Hymn" beside a title wrapping around a stub of dots, which is what letting
+ * both sides shrink produced. Short values ("TBD", "Room 118") never wrap and are unaffected.
+ *
+ * `max-width: 100%` is each side's ceiling once it has a line to itself, and the two `overflow-wrap`
+ * values then decide how text past that ceiling breaks: the label at a space only (`break-word`),
+ * so "Organist" is never cut into "Organi / st"; the value between any two letters (`anywhere`), so
+ * one pathological unbroken string — a run-on name, a pasted URL — can never widen the row past
+ * the phone.
+ */
+.leader-left {
+  flex: 0 0 auto;
+  max-width: 100%;
+  overflow-wrap: break-word;
+}
+
+.leader-right {
+  flex: 0 0 auto;
+  max-width: 100%;
+  margin-left: auto;
+  text-align: right;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* The row's note (`... "Title"` on the line under it): a full-width flex item, so with `flex-wrap`
+ * it always lands on a line of its own, right-aligned under the value it belongs to. Quiet on
+ * purpose — the value is the bold thing on the row; the note is its caption. */
+.leader-note {
+  flex: 0 0 100%;
+  text-align: right;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* An empty box whose only job is the dotted rule. Its baseline is its bottom margin edge, so
+   baseline alignment drops the border onto the text's baseline, where leader dots belong. */
+.leader-dots {
+  flex: 1 1 auto;
+  min-width: 1.5rem;
+  align-self: baseline;
+  border-bottom: 1px dotted var(--muted);
+  opacity: 0.6;
+}
+
+/* The first-run checklist on a new ward's dashboard. */
+.getting-started-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+}
+.getting-started-steps li {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.35rem 0;
+}
+.getting-started-steps .check {
+  flex: none;
+  width: 1.3rem;
+  height: 1.3rem;
+  border: 2px solid #8a93a0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.getting-started-steps li.done .check {
+  background: #2e7d4f;
+  border-color: #2e7d4f;
+  color: #fff;
+}
+
+/* --- Admin: the shell and its shared patterns ------------------------------ */
+
+/* Every server-rendered admin page carries `body.admin` (views.ts `layout`), so nothing in this
+   section can reach the member page, which shares this stylesheet. The body stays navy and <main>
+   grey, exactly as above — only the column widens: forms and edit pages to 720px, the dashboard
+   (`admin-wide`) to 1040px, with the header's contents lined up on the same edges. */
+.admin {
+  --danger: #b91c1c;
+  --ring: 0 0 0 3px rgba(37, 99, 235, 0.28);
+  --col: 720px;
+}
+
+.admin-wide {
+  --col: 1040px;
+}
+
+.admin main {
+  padding: 1.25rem max(1rem, calc((100% - var(--col)) / 2)) 2.5rem;
+}
+
+.admin .admin-bar .btn {
+  white-space: nowrap;
+}
+
+/* One line at any width: the ward's name gives way (with an ellipsis) before the buttons do, and
+   "Admin" / "Editor" is a quiet tag beside it rather than more words to wrap. */
+.admin .admin-bar {
+  flex-wrap: nowrap;
+}
+
+.admin .admin-home {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+/* A phone shows the home-screen name, which is short by design, rather than cutting the full name
+   off after a word or two. Only one of the two is ever displayed, so a screen reader hears one. */
+.admin-ward,
+.admin-ward-short {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-ward-short {
+  display: none;
+}
+
+@media (max-width: 759px) {
+  .admin-ward {
+    display: none;
+  }
+
+  .admin-ward-short {
+    display: block;
+  }
+}
+
+.admin-area {
+  flex: none;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 999px;
+  opacity: 0.85;
+}
+
+.admin .admin-bar-actions {
+  flex: none;
+}
+
+@media (max-width: 759px) {
+  .admin .admin-bar .btn.small {
+    padding: 0.35rem 0.6rem;
+  }
+}
+
+.admin .admin-bar {
+  padding-left: max(1rem, calc((100% - var(--col)) / 2));
+  padding-right: max(1rem, calc((100% - var(--col)) / 2));
+}
+
+/* Keyboard focus, one ring for everything a clerk can press. Never shown after a tap or a click. */
+.admin :where(a, button, summary, .btn):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Two columns where a tab has two kinds of thing; one below the phone breakpoint. A tab with
+   nothing for the right-hand side stays one readable column instead of a stretched one. */
+.cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 0 1.5rem;
+  align-items: start;
+}
+
+.cols.one {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 640px;
+}
+
+@media (max-width: 759px) {
+  .cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The summary strip above the tabs. On a phone only the two tiles that answer "did it go out?"
+   remain: live announcements and the next notification. */
+.strip {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.tile {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.6rem 0.85rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  line-height: 1.35;
+}
+
+.tile-label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.tile-value {
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.tile-note {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.tile-note::before {
+  content: "· ";
+}
+
+@media (max-width: 759px) {
+  .strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .strip .t-program,
+  .strip .t-subs {
+    display: none;
+  }
+
+  .tile-note {
+    display: block;
+  }
+
+  .tile-note::before {
+    content: none;
+  }
+}
+
+/* Get Started: one slim banner — progress, the next step, the full list on request. */
+.gs {
+  background: #eaf1fb;
+  border: 1px solid #c9d9f2;
+  border-radius: 12px;
+  padding: 0.55rem 0.6rem 0.55rem 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.gs-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.gs-ring {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent) 0 var(--gs-p), #d0dcf1 var(--gs-p) 100%);
+  display: grid;
+  place-items: center;
+}
+
+.gs-ring > span {
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #eaf1fb;
+  display: grid;
+  place-items: center;
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--brand);
+}
+
+.gs-next {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.92rem;
+}
+
+.gs-title {
+  display: inline;
+  font-size: inherit;
+  margin: 0 0.3rem 0 0;
+}
+
+.gs-title::after {
+  content: ":";
+}
+
+.gs-link {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.gs-link:hover {
+  text-decoration: underline;
+}
+
+.gs-toggle,
+.gs-x {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  min-height: 40px;
+}
+
+.gs-toggle {
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0 0.55rem;
+  white-space: nowrap;
+}
+
+.gs-x {
+  color: var(--muted);
+  font-size: 1.4rem;
+  line-height: 1;
+  width: 40px;
+}
+
+.gs-toggle:hover,
+.gs-x:hover {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.gs-dismiss {
+  margin: 0;
+}
+
+.gs-steps {
+  margin: 0.55rem 0.25rem 0.2rem 0;
+  padding-top: 0.4rem;
+  border-top: 1px solid #c9d9f2;
+}
+
+.gs-steps .getting-started-steps {
+  margin-top: 0.25rem;
+}
+
+.gs-steps a {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.gs-steps p {
+  margin: 0.25rem 0 0;
+}
+
+@media (max-width: 759px) {
+  .gs-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    column-gap: 0.75rem;
+  }
+
+  .gs-ring {
+    grid-row: 1 / span 2;
+    align-self: start;
+    margin-top: 0.2rem;
+  }
+
+  .gs-dismiss {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: start;
+  }
+
+  .gs-toggle {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+    padding-left: 0;
+    min-height: 36px;
+  }
+}
+
+/* A group: the section title above its card, the actions on the right, one line of help. Named
+   `dash-group`, not `group`: the visual editor's toolbar already uses `.group` for its button sets. */
+.dash-group {
+  margin-bottom: 1.5rem;
+}
+
+.group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.6rem;
+  min-height: 36px;
+  margin: 0 0.15rem 0.5rem;
+}
+
+.group-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.group-sub {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.group-actions {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.group-help {
+  color: var(--muted);
+  font-size: 0.86rem;
+  margin: -0.15rem 0.15rem 0.6rem;
+}
+
+.group-help.under {
+  margin: 0.6rem 0.15rem 0;
+}
+
+details.group-help > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+details.group-help > summary::-webkit-details-marker {
+  display: none;
+}
+
+.more-label {
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.more-label::after {
+  content: " ›";
+}
+
+details[open] > summary .more-label::after {
+  content: " ⌄";
+}
+
+.group-more {
+  margin-top: 0.4rem;
+}
+
+.group-more p {
+  margin: 0 0 0.4rem;
+}
+
+details.group-help.under[open] > .group-card {
+  margin-top: 0.6rem;
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.group-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.group-card.pad {
+  padding: 1rem;
+}
+
+.group-card.pad > :first-child {
+  margin-top: 0;
+  border-top: 0;
+  padding-top: 0;
+}
+
+.group-card.pad > .admin-form > label:first-child {
+  margin-top: 0;
+}
+
+.group-card.pad > :last-child {
+  margin-bottom: 0;
+}
+
+/* The rare, consequential actions: a red edge, and their titles in red. */
+.group-card.danger {
+  border-color: #f3c9c9;
+}
+
+.group-card.danger > details > summary {
+  color: var(--danger);
+}
+
+/* A list card: plain rows, each one a link to its edit page. */
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 3.5rem;
+  padding: 0.55rem 0.6rem 0.55rem 0.9rem;
+  border-top: 1px solid var(--border);
+}
+
+.row:first-child {
+  border-top: 0;
+}
+
+.row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.row-title {
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+/* The whole row is the link's tap target; the handle and the menu sit above it. */
+.row-title::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.row:hover .row-title {
+  text-decoration: underline;
+}
+
+.row-sub {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.row-empty {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.row > .badge {
+  flex: none;
+}
+
+.row > .btn {
+  flex: none;
+}
+
+.row .drag-handle {
+  position: relative;
+  z-index: 1;
+  color: #9ca3af;
+  padding: 0.4rem 0.1rem;
+  margin-left: -0.3rem;
+}
+
+.badge.soon {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.badge.past {
+  background: #f3f4f6;
+  color: var(--muted);
+}
+
+/* The ⋯ menu. A <details>, so it works by keyboard and touch; the dashboard script closes it on an
+   outside click or Escape. Open, it is lifted above the rows below it rather than clipped. */
+.row-menu {
+  position: relative;
+  z-index: 1;
+  flex: none;
+}
+
+.row-menu[open] {
+  z-index: 20;
+}
+
+.row-menu > summary {
+  list-style: none;
+  cursor: pointer;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.row-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.row-menu > summary:hover,
+.row-menu[open] > summary {
+  background: #f3f4f6;
+  color: var(--ink);
+}
+
+.row-menu .menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 10rem;
+  padding: 0.3rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+
+.row-menu .menu form {
+  margin: 0;
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  padding: 0.5rem 0.75rem;
+  appearance: none;
+  background: none;
+  border: 0;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 0.95rem;
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  background: #f3f4f6;
+}
+
+.menu-item.danger {
+  color: var(--danger);
+}
+
+@media (max-width: 759px) {
+  /* A row whose action is a labelled button gives the text the full width, button beneath. */
+  .row.row-action {
+    flex-wrap: wrap;
+    padding-bottom: 0.8rem;
+  }
+
+  .row.row-action > .row-main {
+    flex-basis: 100%;
+  }
+
+  .row-menu > summary {
+    width: 44px;
+    height: 44px;
+  }
+
+  .menu-item {
+    min-height: 44px;
+  }
+}
+
+/* Content policy: one row, its full text a tap away. */
+.content-policy > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.8rem 0.9rem;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.92rem;
+}
+
+.content-policy > summary::-webkit-details-marker {
+  display: none;
+}
+
+.policy-body {
+  padding: 0.75rem 0.9rem 0.9rem;
+  border-top: 1px solid var(--border);
+}
+
+.policy-body > p:first-child {
+  margin-top: 0;
+}
+
+/* Earlier programs: a quiet line under the card that unfolds into a second list card. */
+.program-history > summary {
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 0.6rem 0.15rem 0;
+}
+
+.program-history[open] > .group-card {
+  margin-top: 0.5rem;
+}
+
+.show-again {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
+.show-again p {
+  flex: 1 1 14rem;
+  margin: 0;
+}
+
+/* --- Admin: form controls -------------------------------------------------- */
+
+/* One look for every field, select and picker in the admin: the native date, time and day pickers
+   had been left as the browser drew them, which on a desktop is a cramped grey box beside a
+   rounded text field. 40px tall on a desktop, the 44px touch minimum on a phone. */
+.admin :is(
+    input:not([type]),
+    input[type='text'],
+    input[type='url'],
+    input[type='number'],
+    input[type='date'],
+    input[type='time'],
+    input[type='password'],
+    input[type='email'],
+    select,
+    textarea
+  ) {
+  font: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  background-color: var(--card);
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  padding: 0.45rem 0.7rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.admin :is(input:not([type='checkbox'], [type='radio'], [type='file'], [type='hidden']), select) {
+  min-height: 40px;
+}
+
+.admin :is(
+    input:not([type]),
+    input[type='text'],
+    input[type='url'],
+    input[type='number'],
+    input[type='date'],
+    input[type='time'],
+    input[type='password'],
+    input[type='email'],
+    select,
+    textarea
+  ):focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+
+.admin :is(input, select, textarea):disabled {
+  background-color: #f3f4f6;
+  color: var(--muted);
+}
+
+/* A drawn chevron in place of the platform's select arrow, so a select is the same height and shape
+   as the field beside it. */
+.admin select:not([multiple]) {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 2.1rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%236b7280' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 12px 8px;
+}
+
+.admin :is(input[type='date'], input[type='time']) {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+}
+
+.admin :is(input[type='date'], input[type='time'])::-webkit-calendar-picker-indicator {
+  opacity: 0.55;
+  cursor: pointer;
+}
+
+.admin :is(input[type='checkbox'], input[type='radio']) {
+  accent-color: var(--accent);
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: 0;
+  flex: none;
+}
+
+.admin .inline-form label:not(.checkbox) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  font-weight: 500;
+}
+
+@media (max-width: 759px) {
+  .admin :is(input:not([type='checkbox'], [type='radio'], [type='file'], [type='hidden']), select) {
+    min-height: 44px;
+  }
+}
+
+.admin textarea {
+  min-height: 90px;
+  line-height: 1.45;
+}
+
+/* The visual editor's own box is the field (see `.wysiwyg`); its source textarea inside draws no
+   ring or border of its own. */
+.admin .wysiwyg textarea:focus {
+  box-shadow: none;
+}
+
+/* The Content tab on a phone reads announcements, programs, resources, policy — not the desktop's
+   left column then right. The columns step aside (`display: contents`) and each group's own
+   `--phone-order` places it. */
+@media (max-width: 759px) {
+  .cols.phone-order > .col {
+    display: contents;
+  }
+
+  .cols.phone-order .dash-group {
+    order: var(--phone-order, 0);
+  }
+}
+
+/* --- Admin: modals --------------------------------------------------------- */
+
+/* The dashboard's previews reuse the member page's bottom sheet, scoped here so that one is left as
+   it is. The sheet itself no longer scrolls: its heading, the Copy / PDF controls and the close
+   button stay put, and only the `.sheet-body` below them scrolls — without handing the scroll on to
+   the page when it reaches the end. (The page behind is held still by the open script.) */
+.admin .sheet {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: 88vh;
+  max-height: 88dvh;
+}
+
+.admin .sheet > :not(.sheet-body) {
+  flex: none;
+}
+
+.admin .sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.admin .sheet-close {
+  z-index: 1;
+  font-size: 1.2rem;
+  line-height: 1;
+  color: var(--ink);
+}
+
+/* On a tablet or a desktop a sheet docked to the bottom edge reads as something sliding off the
+   screen: there it is a centred dialog, with no grab handle (nothing to grab). */
+@media (min-width: 760px) {
+  .admin .sheet-backdrop {
+    align-items: center;
+    padding: 1.5rem;
+  }
+
+  .admin .sheet {
+    max-width: 640px;
+    max-height: 85vh;
+    max-height: 85dvh;
+    border-radius: 16px;
+    padding: 1.25rem 1.5rem 1.5rem;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+    animation: sheet-fade 0.2s ease;
+  }
+
+  .admin .sheet-handle {
+    display: none;
+  }
+}
+
+.admin .sheet h2 {
+  padding-right: 2.75rem;
+}
+
+/* A card's heading needs no space above it: the card's padding is that space. */
+.admin .card > :is(h2, h3):first-child {
+  margin-top: 0;
+}
+
+/* --- Admin: settings lists ------------------------------------------------- */
+
+/* Label left, current value right (muted, cut short with an ellipsis), chevron. A row with a form
+   behind it is a <details>: tapping it unfolds the form under the row, and the chevron turns. */
+.settings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.set-row {
+  border-top: 1px solid var(--border);
+}
+
+.set-row:first-child {
+  border-top: 0;
+}
+
+.set-line {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3.1rem;
+  padding: 0.55rem 0.9rem;
+  margin: 0;
+}
+
+details > summary.set-line {
+  cursor: pointer;
+  list-style: none;
+}
+
+details > summary.set-line::-webkit-details-marker {
+  display: none;
+}
+
+details > summary.set-line:hover {
+  background: #f9fafb;
+}
+
+.set-row:first-child > details > summary.set-line {
+  border-radius: 12px 12px 0 0;
+}
+
+.set-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.set-label {
+  font-weight: 500;
+}
+
+.set-sub {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+/* "Change" on a read-only row (Day and Time): the dashboard's link look, not the browser's. */
+.set-sub a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.set-value {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 50%;
+  color: var(--muted);
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.set-none {
+  color: #9ca3af;
+}
+
+.set-chev,
+.row-chev {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 2px solid #9ca3af;
+  border-bottom: 2px solid #9ca3af;
+  transform: rotate(-45deg);
+  margin: 0 0.25rem 0 0.1rem;
+  transition: transform 0.15s;
+}
+
+details[open] > summary .set-chev {
+  transform: rotate(45deg);
+}
+
+.set-body {
+  padding: 0.25rem 0.9rem 1rem;
+  border-top: 1px dashed var(--border);
+  background: #fbfbfc;
+}
+
+.set-body > :first-child {
+  margin-top: 0.75rem;
+}
+
+.set-body > .admin-form > label:first-of-type {
+  margin-top: 0.25rem;
+}
+
+.set-body .skip-list {
+  margin-top: 0.25rem;
+}
+
+.set-row:last-child .set-body {
+  border-radius: 0 0 12px 12px;
+}
+
+/* Advanced Timing holds two forms; each is headed so they read as two saves, not one. */
+.set-heading {
+  margin: 1.1rem 0 0.25rem;
+  font-size: 0.95rem;
+}
+
+.set-body .admin-form + .admin-form {
+  border-top: 1px dashed var(--border);
+  margin-top: 1rem;
+}
+
+/* Sacrament Meeting: what saving will set, recomputed as the inputs change. */
+.meeting-preview {
+  margin: 0.75rem 0 0.25rem;
+  font-weight: 500;
+}
+
+.meeting-replaces {
+  margin: 0.25rem 0;
+  color: #92400e;
+  font-size: 0.9rem;
+}
+
+/* A settings row a link jumped to (Change the Hours, Get Started): clear of the top, briefly marked. */
+.admin .set-row {
+  scroll-margin-top: 1rem;
+}
+
+.admin .set-row.is-flashing {
+  animation: section-flash 1.6s ease-out;
+}
+
+/* The rare, consequential rows: their names in red. */
+.danger-row .set-label {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* A settings switch: a real checkbox, drawn as a switch. */
+.set-switch {
+  justify-content: space-between;
+}
+
+.set-switch .set-label {
+  flex: 1;
+  cursor: pointer;
+}
+
+.admin input.switch[type='checkbox'] {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 26px;
+  margin: 0;
+  border-radius: 999px;
+  background: #d1d5db;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.admin input.switch[type='checkbox']::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s;
+}
+
+.admin input.switch[type='checkbox']:checked {
+  background: #16a34a;
+}
+
+.admin input.switch[type='checkbox']:checked::after {
+  transform: translateX(18px);
+}
+
+.admin input.switch[type='checkbox']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* A header button that unfolds a form under the heading. Closed it is just the button; open it
+   takes the full width below the title line, the button (now "Cancel") staying where it was. */
+.head-reveal {
+  margin-left: auto;
+}
+
+.head-reveal > summary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.head-reveal > summary::-webkit-details-marker {
+  display: none;
+}
+
+.head-reveal .when-open,
+.head-reveal[open] .when-closed {
+  display: none;
+}
+
+.head-reveal[open] .when-open {
+  display: inline;
+}
+
+.head-reveal[open] > summary {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--ink);
+}
+
+.head-reveal[open] {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  /* Up onto the title line, so the button does not jump when it opens. */
+  margin-top: calc(-36px - 0.35rem);
+  pointer-events: none;
+}
+
+.head-reveal[open] > * {
+  pointer-events: auto;
+}
+
+.head-reveal-body {
+  align-self: stretch;
+  margin-top: 0.5rem;
+  font-weight: normal;
+}
+
+.head-reveal-body > p:first-child {
+  margin-top: 0;
+}
+
+/* Rows that are not links: Recent Sends, the People list's chevron. */
+.row-head {
+  font-weight: 600;
+}
+
+.send-msg > summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.send-msg .send-body {
+  margin: 0.35rem 0 0.1rem;
+}
+
+/* --- Admin: the share card ------------------------------------------------- */
+
+.share {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.share-qr {
+  flex: none;
+}
+
+.share-qr svg {
+  display: block;
+  width: 116px;
+  height: 116px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.share-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.share .share-link {
+  display: block;
+  margin: 0 0 0.6rem;
+  font-size: 0.85rem;
+}
+
+.share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.share-actions .flyer {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.copy-status {
+  color: #15803d;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.share-warn {
+  margin: 0.6rem 0 0;
+  color: #b45309;
+  font-size: 0.85rem;
+}
+
+.share-more {
+  margin: 0.85rem 0 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+/* The flyer's one button and its two layouts: the ⋯ menu's dropdown, with a button for a trigger. */
+.flyer-menu > summary.btn {
+  width: auto;
+  height: auto;
+  display: inline-flex;
+  color: var(--ink);
+  font-size: 0.9rem;
+  border-radius: 10px;
+}
+
+.flyer-menu .menu {
+  left: 0;
+  right: auto;
+  min-width: 13rem;
+}
+
+.menu-note {
+  display: block;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+@media (max-width: 759px) {
+  .share {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .share-main {
+    flex-basis: 100%;
+  }
+}
+
+.group-help a {
+  color: var(--accent);
+}
+
+/* --- Dark mode: what the tokens can't reach ------------------------------- */
+
+/* Scoped like the tokens (see the top of the file): the admin's sheet previews share these classes
+   and stay light. */
+
+/* The install illustrations are drawn on white, as iOS draws its own menus. Inverting them would
+   no longer look like the phone in the member's hand, so they keep a light plate — dimmed, so a
+   300px panel of white doesn't flare in a dark room. */
+:root[data-theme="dark"] body:not(.admin) .shot-steps .shot {
+  border-color: transparent;
+  filter: brightness(0.86);
+}
+
+/* The small step glyphs are accent-blue line art on nothing: a pale rounded plate under them
+   keeps the blue at the contrast it was drawn for. */
+:root[data-theme="dark"] body:not(.admin) .install-steps-list img {
+  background: #dfe4ea;
+  padding: 4px;
+}
+
+/* close.svg is a mid-grey stroke drawn for a pale button; lighten it for the dark one. */
+:root[data-theme="dark"] body:not(.admin) .sheet-close img {
+  filter: brightness(0) invert(0.82);
+}
+
+/* A scanner wants dark modules on a light field with a quiet margin round it. The QR's own white
+   square is only one module wider than the code, so the padding has to be white too. */
+:root[data-theme="dark"] body:not(.admin) #share-qr svg {
+  background: #ffffff;
+  border-color: transparent;
+}
+
+/* A program's `---` is drawn at half strength over the border colour, which on a dark card was
+   no longer visible at all. */
+:root[data-theme="dark"] body:not(.admin) .program .body hr {
+  opacity: 0.9;
+}
+
+/* --- Hymn links ---------------------------------------------------------- */
+
+/* A hymn row's number and its note link to the hymn on the Church's site, which Gospel Library
+   opens when it is installed (src/markdown.ts, "Hymn links"). They should read as part of the
+   printed program, not as web links: the row's own colour and weight, and a faint underline in the
+   accent colour as the only hint that they can be tapped. Solid rather than dotted, so it is never
+   mistaken for the leader dots beside it. */
+.program .body a.hymn-link {
+  color: inherit;
+  font-weight: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.22em;
+  text-decoration-color: var(--accent);
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.program .body a.hymn-link:active {
+  opacity: 0.6;
+}
+
+/* A section a Get Started link jumped to: clear of the top edge, and briefly ringed so the jump is
+   visible even when the section was already on screen. */
+.admin .dash-group {
+  scroll-margin-top: 1rem;
+}
+
+.admin .dash-group.is-flashing > .group-card {
+  animation: section-flash 1.6s ease-out;
+}
+
+@keyframes section-flash {
+  0%,
+  35% {
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.45);
+  }
+  100% {
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin .dash-group.is-flashing > .group-card,
+  .admin .set-row.is-flashing {
+    animation: none;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.45);
+  }
+}

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 124" fill="none" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <marker id="arrowhead" markerWidth="3.2" markerHeight="3.6" refX="2" refY="1.8" orient="auto">
+      <path d="M0 0 L3 1.8 L0 3.6 Z" fill="#ff3b30" />
+    </marker>
+  </defs>
+  <!-- back button (in a circle, like •••) -->
+  <rect x="8" y="46" width="40" height="40" rx="20" fill="#ededf0" />
+  <path d="M31 58 L23 66 L31 74" stroke="#1c1c1e" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />
+  <!-- address pill -->
+  <rect x="54" y="46" width="194" height="40" rx="20" fill="#ededf0" />
+  <g stroke="#8e8e93" stroke-width="2" stroke-linecap="round">
+    <line x1="70" y1="60" x2="82" y2="60" />
+    <line x1="70" y1="66" x2="82" y2="66" />
+    <line x1="70" y1="72" x2="78" y2="72" />
+  </g>
+  <text x="96" y="72" font-size="19" fill="#3c3c43">example.org</text>
+  <!-- reload (clockwise circular arrow) -->
+  <g transform="translate(213,55) scale(0.82)" fill="none" stroke="#8e8e93" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="23 4 23 10 17 10" />
+    <path d="M20.49 15a9 9 0 1 1 -2.12 -9.36 L23 10" />
+  </g>
+  <!-- ••• button -->
+  <rect x="256" y="46" width="44" height="40" rx="20" fill="#ededf0" />
+  <circle cx="268" cy="66" r="3.2" fill="#3a3a3c" />
+  <circle cx="278" cy="66" r="3.2" fill="#3a3a3c" />
+  <circle cx="288" cy="66" r="3.2" fill="#3a3a3c" />
+  <!-- red arrow -->
+  <line x1="315" y1="12" x2="288" y2="52" stroke="#ff3b30" stroke-width="5" stroke-linecap="butt" marker-end="url(#arrowhead)" />
+</svg>
