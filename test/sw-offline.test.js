@@ -23,16 +23,31 @@ const SW_SOURCE = readFileSync(
   'utf8',
 );
 
-/** A worker with one cache, keyed by pathname, and a network that `online` decides about. */
-function worker() {
-  const store = new Map();
-  const cache = {
-    put: async (request, response) => void store.set(new URL(request.url).pathname, response),
-    match: async (request) => store.get(new URL(request.url).pathname)?.clone(),
-    delete: async (request) => store.delete(new URL(request.url).pathname),
+/** A cache keyed by pathname. */
+function fakeCache(store = new Map()) {
+  return {
+    store,
+    put: async (request, response) => void store.set(new URL(request.url ?? request, ORIGIN).pathname, response),
+    match: async (request) => store.get(new URL(request.url ?? request, ORIGIN).pathname)?.clone(),
+    delete: async (request) => store.delete(new URL(request.url ?? request, ORIGIN).pathname),
     keys: async () => [...store.keys()].map((path) => new Request(ORIGIN + path)),
   };
-  const net = { online: true, reply: () => new Response('{}') };
+}
+
+/**
+ * A worker with a cache per name, and a network that `online` decides about. `store` is the
+ * per-build cache; `saved` pre-fills the image cache the page saves into (`pushannounce-images`).
+ */
+function worker({ saved = [] } = {}) {
+  const caches = new Map();
+  const images = fakeCache();
+  for (const path of saved) images.store.set(path, new Response('saved ' + path));
+  caches.set('pushannounce-images', images);
+  const named = (name) => {
+    if (!caches.has(name)) caches.set(name, fakeCache());
+    return caches.get(name);
+  };
+  const net = { online: true, reply: () => new Response('{}'), asked: [] };
   const listeners = {};
   vm.runInContext(
     SW_SOURCE,
@@ -43,8 +58,20 @@ function worker() {
         skipWaiting: () => {},
         clients: { claim: async () => {} },
       },
-      caches: { open: async () => cache, match: (request) => cache.match(request), keys: async () => [] },
+      caches: {
+        open: async (name) => named(name),
+        match: async (request) => {
+          for (const cache of caches.values()) {
+            const hit = await cache.match(request);
+            if (hit) return hit;
+          }
+          return undefined;
+        },
+        keys: async () => [...caches.keys()],
+        delete: async (name) => caches.delete(name),
+      },
       fetch: async (request) => {
+        net.asked.push(new URL(request.url).pathname);
         if (!net.online) throw new TypeError('Failed to fetch');
         return net.reply(request);
       },
@@ -58,7 +85,47 @@ function worker() {
     listeners.fetch({ request: new Request(ORIGIN + path), respondWith: (p) => void (reply = p) });
     return reply;
   };
-  return { store, net, get };
+  const navigate = async (path) => {
+    let wait;
+    listeners.fetch({
+      // Node's Request refuses mode 'navigate' (only a browser makes one), so a request-shaped object.
+      request: { url: ORIGIN + path, method: 'GET', mode: 'navigate', headers: new Headers() },
+      respondWith: () => {},
+      waitUntil: (p) => void (wait = p),
+    });
+    await wait;
+  };
+  const message = async (data) => {
+    let wait;
+    listeners.message({ data, waitUntil: (p) => void (wait = p) });
+    await wait;
+  };
+  const activate = async () => {
+    let wait;
+    listeners.activate({ waitUntil: (p) => void (wait = p) });
+    await wait;
+  };
+  // The worker reads the saved images when it starts; let that finish, as it would before a page
+  // asked for anything.
+  const ready = new Promise((resolve) => setTimeout(resolve, 0));
+  return {
+    get store() {
+      return [...caches.entries()].find(([name]) => name !== 'pushannounce-images')?.[1].store ?? new Map();
+    },
+    ready,
+    images,
+    caches,
+    net,
+    get: async (path) => (await ready, get(path)),
+    navigate: async (path) => (await ready, navigate(path)),
+    getNow: (path) => {
+      let reply;
+      listeners.fetch({ request: new Request(ORIGIN + path), respondWith: (p) => void (reply = p) });
+      return reply;
+    },
+    message: async (data) => (await ready, message(data)),
+    activate,
+  };
 }
 
 const json = (body, cacheControl = 'private, no-cache') =>
@@ -102,6 +169,71 @@ describe('the program offline', () => {
     await sw.get('/api/program');
     sw.net.online = false;
     assert.equal((await (await sw.get('/api/program')).json()).message, 'The program will be here Sunday.');
+  });
+});
+
+describe('uploaded images', () => {
+  // A download the worker relays dies with it: on iOS an updated worker taking over during a cold
+  // launch of the home-screen app cancelled every image in flight, and flyers showed as broken
+  // boxes. So the worker never relays a download: a new image goes to the browser, the page saves
+  // a copy (public/app.js), and the worker answers that copy from then on.
+  const IMG = '/images/0123456789abcdef0123456789abcdef.jpg';
+
+  test('a new image is not intercepted, so the browser fetches it itself', async () => {
+    const sw = worker();
+    assert.equal(await sw.get(IMG), undefined, 'respondWith not called');
+    assert.deepEqual(sw.net.asked, [], 'and the worker did not download it either');
+    assert.ok(await sw.get('/api/announcements'), 'everything else still goes through it');
+  });
+
+  test('a saved image is answered from the saved copy, offline too, without the network', async () => {
+    const sw = worker({ saved: [IMG] });
+    sw.net.online = false;
+    assert.equal(await (await sw.get(IMG)).text(), 'saved ' + IMG);
+    assert.deepEqual(sw.net.asked, []);
+  });
+
+  test('an image asked for before the worker has read its saved list still gets the saved copy', async () => {
+    const sw = worker({ saved: [IMG] });
+    sw.net.online = false;
+    const reply = sw.getNow(IMG); // no waiting for the startup read
+    assert.ok(reply, 'answered, not left to the network');
+    assert.equal(await (await reply).text(), 'saved ' + IMG);
+  });
+
+  test('the page saving or pruning an image is picked up without a restart', async () => {
+    const sw = worker();
+    await sw.images.put(new Request(ORIGIN + IMG), new Response('just saved'));
+    await sw.message({ type: 'image-saved', path: IMG });
+    assert.equal(await (await sw.get(IMG)).text(), 'just saved');
+
+    await sw.images.delete(new Request(ORIGIN + IMG));
+    await sw.message({ type: 'images-changed' });
+    assert.equal(await sw.get(IMG), undefined, 'pruned: back to the browser');
+  });
+
+  test('a copy saved without the worker hearing of it is picked up on the next page load', async () => {
+    const sw = worker();
+    await sw.ready;
+    await sw.images.put(new Request(ORIGIN + IMG), new Response('saved meanwhile')); // no message
+    assert.equal(await sw.get(IMG), undefined, 'not known yet');
+    await sw.navigate('/');
+    assert.equal(await (await sw.get(IMG)).text(), 'saved meanwhile');
+  });
+
+  test('a saved copy that has gone since is fetched rather than failed', async () => {
+    const sw = worker({ saved: [IMG] });
+    await sw.ready; // the worker has read the cache, then the copy goes
+    await sw.images.delete(new Request(ORIGIN + IMG));
+    sw.net.reply = () => new Response('from the network');
+    assert.equal(await (await sw.get(IMG)).text(), 'from the network');
+  });
+
+  test('an update keeps the saved images and drops the old build cache', async () => {
+    const sw = worker({ saved: [IMG] });
+    sw.caches.set('pushannounce-oldbuild', fakeCache());
+    await sw.activate();
+    assert.deepEqual([...sw.caches.keys()].sort(), ['pushannounce-images']);
   });
 });
 

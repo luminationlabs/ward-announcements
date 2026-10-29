@@ -162,6 +162,7 @@ async function renderAnnouncements() {
     if (!announcements.length) {
       next.innerHTML = '<p class="empty-note">No announcements this week.</p>';
       swapIfChanged(listEl, next);
+      imagesListed.announcements = true;
       return;
     }
     for (const a of announcements) {
@@ -189,7 +190,9 @@ async function renderAnnouncements() {
       next.appendChild(card);
     }
     swapIfChanged(listEl, next);
+    imagesListed.announcements = true;
   } catch {
+    imagesListed.announcements = false;
     listEl.innerHTML = '<p class="muted">Could not load announcements.</p>';
   }
 }
@@ -202,8 +205,8 @@ async function renderAnnouncements() {
  * own. Returns whether anything changed, for callers that care.
  *
  * An image that failed to load would be the exception, since its markup is identical to a working
- * one: a flyer whose fetch died once (iOS suspending the app mid-load) stayed a broken box on every
- * later refresh, until the app was force-quit. `markFailedImages` makes it differ.
+ * one: a flyer whose fetch died once (see the image note in public/sw.js) stayed a broken box on
+ * every later refresh, until the app was force-quit. `markFailedImages` makes it differ.
  */
 function swapIfChanged(target, next) {
   if (target.innerHTML === next.innerHTML) return false;
@@ -264,6 +267,83 @@ function markFailedImages(container) {
 markFailedImages(listEl);
 markFailedImages(programContent);
 markFailedImages(resourcesList);
+
+// --- Images offline ----------------------------------------------------------
+
+/** Saved announcement and resource images. Must match IMAGE_CACHE in public/sw.js, which serves them. */
+const IMAGE_CACHE = 'pushannounce-images';
+
+/** Whether each section last rendered from a real reply: pruning must never run against an error. */
+const imagesListed = { announcements: false, resources: false };
+
+/**
+ * Save an image that just loaded, so the service worker can answer it from now on — offline too.
+ *
+ * The page does this rather than the worker relaying the download, because a relayed download dies
+ * with its worker: on iOS an updated worker taking over during a cold launch of the home-screen app
+ * cancelled every image still in flight (see the fetch handler in public/sw.js). In Chrome the
+ * browser's cache answers the save's fetch; in an iOS home-screen app it did not, even with
+ * `force-cache`, so there each new image is downloaded twice, once. Program images are never saved
+ * (they are `no-store`, and their container is not watched).
+ */
+async function saveImageForOffline(img) {
+  const path = new URL(img.src, location.href).pathname;
+  if (!path.startsWith('/images/') || !('caches' in window)) return;
+  try {
+    const cache = await caches.open(IMAGE_CACHE);
+    if (!(await cache.match(path))) {
+      const response = await fetch(path, { cache: 'force-cache' });
+      if (!response.ok || /no-store/i.test(response.headers.get('Cache-Control') || '')) return;
+      await cache.put(path, response);
+    }
+    // Told even when it was already saved: a worker that missed the first message (it went to the
+    // one an update replaced) would otherwise keep sending this image to the network.
+    navigator.serviceWorker?.controller?.postMessage({ type: 'image-saved', path });
+  } catch {
+    /* best effort: the next time it loads tries again */
+  }
+}
+
+function saveLoadedImages(container) {
+  if (!container) return;
+  container.addEventListener(
+    'load',
+    (e) => {
+      if (e.target instanceof HTMLImageElement) saveImageForOffline(e.target);
+    },
+    true,
+  );
+}
+saveLoadedImages(listEl);
+saveLoadedImages(resourcesList);
+
+/**
+ * Forget saved images that no announcement or resource shows any more, so the cache does not grow
+ * by every flyer the ward has ever posted. Only after both sections rendered from a real reply (a
+ * cached one offline counts): an error message lists no images, and pruning against it would throw
+ * away everything a member needs in a chapel with no signal.
+ */
+async function pruneSavedImages() {
+  if (!imagesListed.announcements || !imagesListed.resources || !listEl || !resourcesList) return;
+  if (!('caches' in window)) return;
+  const shown = new Set(
+    [...listEl.querySelectorAll('img'), ...resourcesList.querySelectorAll('img')]
+      .filter((img) => img.getAttribute('src'))
+      .map((img) => new URL(img.src, location.href).pathname),
+  );
+  try {
+    const cache = await caches.open(IMAGE_CACHE);
+    let removed = false;
+    for (const request of await cache.keys()) {
+      if (shown.has(new URL(request.url).pathname)) continue;
+      await cache.delete(request);
+      removed = true;
+    }
+    if (removed) navigator.serviceWorker?.controller?.postMessage({ type: 'images-changed' });
+  } catch {
+    /* best effort: the next refresh prunes again */
+  }
+}
 
 // --- Tabs ------------------------------------------------------------------
 
@@ -471,9 +551,11 @@ async function renderResources() {
     }
     if (!pages.length) next.innerHTML = '<p class="muted">Nothing here yet.</p>';
     swapIfChanged(resourcesList, next);
+    imagesListed.resources = true;
     resourcesKnownEmpty = pages.length === 0;
     setResourcesTabVisible(pages.length > 0);
   } catch {
+    imagesListed.resources = false;
     resourcesList.innerHTML = '<p class="muted">Could not load the resources.</p>';
     // A cold load of `/#resources` that could not fetch: the tab was never revealed, so the member
     // would be reading an error on a panel with no tab selected. Fall back to the announcements. A
@@ -970,6 +1052,7 @@ async function refreshOnResume({ force = false } = {}) {
   // member is on is left alone — re-running the entry rule under them would be a section swapping
   // itself out mid-read.
   await Promise.all([renderAnnouncements(), renderProgram(), renderResources()]);
+  pruneSavedImages();
   if (swRegistration) {
     // Force a service-worker update check. A frozen/resumed PWA never navigates, so without this
     // it would never notice a new deploy. If sw.js changed, the new worker installs and calls
@@ -1048,6 +1131,7 @@ async function main() {
   const wanted = tabFromHash();
   if (wanted) showTab(wanted, { updateHash: false });
   Promise.all([renderAnnouncements(), renderProgram(), renderResources()]).then(() => {
+    pruneSavedImages();
     // `updateHash: false` deliberately: the automatic choice must not be written into the URL, or a
     // member who opened on Sunday would carry `#program` into every later visit and land on the
     // closed message all week. Only a tap the member made is worth remembering.

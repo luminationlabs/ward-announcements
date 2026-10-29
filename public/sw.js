@@ -8,12 +8,39 @@
 const BUILD_ID = '{{BUILD_ID}}';
 const CACHE = 'pushannounce-' + BUILD_ID;
 
+// Uploaded announcement and resource images, kept for offline use. Not per build like CACHE: an
+// image's key is never reused, so a saved copy is good across updates. The page saves into it and
+// prunes it (public/app.js, IMAGE_CACHE there), because only the page can avoid the cancellation
+// described at the fetch handler.
+const IMAGE_CACHE = 'pushannounce-images';
+
+// The paths saved in IMAGE_CACHE. The fetch handler has to decide synchronously whether to answer an
+// image, so it cannot wait on Cache Storage: this is read when the worker starts and again on every
+// page load (its images are asked for after the page itself), and the page's messages add what it
+// saves in between. Not messages alone: a page saving during an update tells the outgoing worker,
+// and iOS kept the incoming one alive across launches, so it never learned of the copy. `null`
+// until first read; an image asked for before then waits for it (`savedImagesRead`).
+let savedImages = null;
+async function loadSavedImages() {
+  try {
+    const keys = await (await caches.open(IMAGE_CACHE)).keys();
+    savedImages = new Set(keys.map((request) => new URL(request.url).pathname));
+  } catch {
+    savedImages = new Set(); // nothing readable is nothing saved: every image goes to the network
+  }
+}
+const savedImagesRead = loadSavedImages();
+
 // The page asks which build this worker belongs to when a new worker takes control, and reloads
 // only if its own `<meta name="build-id">` disagrees. Answered on the MessageChannel port the page
 // sends (`event.ports[0]`), falling back to the client itself, so the reply cannot be mistaken for
 // the `refresh` message below.
 self.addEventListener('message', (event) => {
-  if (!event.data || event.data.type !== 'build-id') return;
+  const type = event.data && event.data.type;
+  // The page saved an image for offline use, or pruned some.
+  if (type === 'image-saved' && savedImages && typeof event.data.path === 'string') savedImages.add(event.data.path);
+  if (type === 'images-changed') event.waitUntil(loadSavedImages());
+  if (type !== 'build-id') return;
   const reply = { type: 'build-id', buildId: BUILD_ID };
   const port = event.ports && event.ports[0];
   if (port) port.postMessage(reply);
@@ -28,7 +55,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       const keys = await caches.keys();
-      await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
+      await Promise.all(keys.filter((k) => k !== CACHE && k !== IMAGE_CACHE).map((k) => caches.delete(k)));
       await self.clients.claim();
     })(),
   );
@@ -38,15 +65,28 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
+  // A page load: re-read the saved images before the page asks for any (see `savedImages`).
+  if (request.mode === 'navigate') event.waitUntil(loadSavedImages());
+  // Uploaded images: a saved copy is answered from IMAGE_CACHE (offline too, and no data spent);
+  // anything else is left to the browser rather than relayed. A download this worker relays dies
+  // with it: on iOS, when an updated worker takes over during a cold launch of the home-screen app,
+  // every image still in flight is cancelled and shows as a broken box — a new flyer, on the first
+  // open after any change to the app's files. The browser's HTTP cache is no substitute for the
+  // saved copy: a home-screen app did not keep images across launches even marked `immutable`.
+  const imagePath = new URL(request.url).pathname;
+  if (imagePath.startsWith('/images/')) {
+    if (savedImages === null) {
+      // Asked for before the startup read finished (a worker woken by this launch, a page served
+      // fast): wait for it rather than miss a saved copy offline. Relays only an unsaved image in
+      // those first moments of a worker's life.
+      event.respondWith(savedImagesRead.then(() => (savedImages.has(imagePath) ? savedImage(request) : fetch(request))));
+    } else if (savedImages.has(imagePath)) {
+      event.respondWith(savedImage(request));
+    }
+    return;
+  }
   event.respondWith(
     (async () => {
-      // Uploaded images are the one exception: their URL contains a random key that is never
-      // reused, so a cached copy can never be stale and re-fetching one costs a phone real data.
-      // Cache-first, then fall through to the network on a miss.
-      if (new URL(request.url).pathname.startsWith('/images/')) {
-        const hit = await caches.match(request);
-        if (hit) return hit;
-      }
       const path = new URL(request.url).pathname;
       try {
         const response = await fetch(request);
@@ -79,6 +119,12 @@ self.addEventListener('fetch', (event) => {
     })(),
   );
 });
+
+// A saved image, or the network if its copy has gone since the worker last read the cache.
+async function savedImage(request) {
+  const hit = await (await caches.open(IMAGE_CACHE)).match(request);
+  return hit || fetch(request);
+}
 
 // An open program past its `closesAt`. A copy without one (cached before the server sent it) is
 // treated as closed too: showing nothing offline is the safe way to be wrong.
