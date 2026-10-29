@@ -200,12 +200,70 @@ async function renderAnnouncements() {
  * The comparison is on markup, which is what the member sees; listeners on the new nodes (thumbnail
  * taps) are only lost when the nodes are discarded as duplicates of ones that already carry their
  * own. Returns whether anything changed, for callers that care.
+ *
+ * An image that failed to load would be the exception, since its markup is identical to a working
+ * one: a flyer whose fetch died once (iOS suspending the app mid-load) stayed a broken box on every
+ * later refresh, until the app was force-quit. `markFailedImages` makes it differ.
  */
 function swapIfChanged(target, next) {
   if (target.innerHTML === next.innerHTML) return false;
   target.replaceChildren(...next.childNodes);
   return true;
 }
+
+/** How long to wait before each automatic reload of a failed image; one entry per attempt. */
+const IMAGE_RETRY_DELAYS_MS = [2_000, 8_000];
+
+/** Automatic reloads already spent on each image. A WeakMap, not an attribute: nothing in the markup. */
+const imageRetries = new WeakMap();
+
+/**
+ * Recover images that fail to load in a swapped container.
+ *
+ * A failed image is tagged `data-failed`, so its container no longer matches a fresh render and the
+ * next refresh swaps in new nodes, which fetch it again. Before that, it is reloaded in place after
+ * IMAGE_RETRY_DELAYS_MS, so a member left looking at the page is not waiting on a resume. iOS freezes
+ * timers with the app, so a load killed by a suspension is retried just after the app comes back.
+ * A reload that succeeds drops the tag, and the markup matches again.
+ *
+ * Keyed to the `error` event rather than `complete`/`naturalWidth`: Chrome reports a lazy image not
+ * yet scrolled to as complete with no width, which would read as broken. Capture phase, because
+ * neither `error` nor `load` bubbles. Bounded: the retries per image are counted, and a node a
+ * refresh has since replaced is left alone.
+ */
+function markFailedImages(container) {
+  if (!container) return;
+  container.addEventListener(
+    'error',
+    (e) => {
+      const img = e.target;
+      if (!(img instanceof HTMLImageElement)) return;
+      const src = img.getAttribute('src');
+      if (!src) return; // no source, nothing to retry
+      img.setAttribute('data-failed', '');
+      const spent = imageRetries.get(img) || 0;
+      if (spent >= IMAGE_RETRY_DELAYS_MS.length) return; // the next refresh is the last word
+      imageRetries.set(img, spent + 1);
+      setTimeout(() => {
+        if (!img.isConnected || !img.hasAttribute('data-failed')) return;
+        // Cleared and set again rather than re-assigned, so it is a fresh load (checked in Chrome and iOS Safari).
+        img.removeAttribute('src');
+        img.setAttribute('src', src);
+      }, IMAGE_RETRY_DELAYS_MS[spent]);
+    },
+    true,
+  );
+  container.addEventListener(
+    'load',
+    (e) => {
+      if (e.target instanceof HTMLImageElement) e.target.removeAttribute('data-failed');
+    },
+    true,
+  );
+}
+markFailedImages(listEl);
+markFailedImages(programContent);
+markFailedImages(resourcesList);
 
 // --- Tabs ------------------------------------------------------------------
 

@@ -218,6 +218,87 @@ describe('a resume that fetched identical content repaints nothing', () => {
     assert.equal(target.replaced, 1);
     assert.equal(target.innerHTML, '<article>New</article>');
   });
+  test('a failed image is marked and reloaded in place, at most twice, and unmarked once it loads', () => {
+    // A failed image's markup is otherwise identical to a working one, and the comparison above
+    // would keep the broken node forever.
+    const listeners = {};
+    const container = {
+      addEventListener: (type, fn, capture) => {
+        assert.equal(capture, true, `${type} does not bubble; only a capture listener sees it`);
+        listeners[type] = fn;
+      },
+    };
+    const timers = [];
+    class HTMLImageElement {
+      constructor(src) {
+        this.attrs = { src };
+        this.isConnected = true;
+        this.reloads = 0;
+      }
+      getAttribute(name) {
+        return this.attrs[name] ?? null;
+      }
+      hasAttribute(name) {
+        return name in this.attrs;
+      }
+      setAttribute(name, value) {
+        if (name === 'src') this.reloads++;
+        this.attrs[name] = value;
+      }
+      removeAttribute(name) {
+        delete this.attrs[name];
+      }
+    }
+    const ctx = vm.createContext({
+      HTMLImageElement,
+      WeakMap,
+      setTimeout: (fn, ms) => timers.push({ fn, ms }),
+    });
+    for (const name of ['IMAGE_RETRY_DELAYS_MS', 'imageRetries']) {
+      vm.runInContext(APP_SOURCE.split('\n').find((l) => l.startsWith(`const ${name}`)), ctx);
+    }
+    vm.runInContext(liftFunction(APP_SOURCE, 'markFailedImages'), ctx);
+    vm.runInContext('markFailedImages', ctx)(container);
+
+    const img = new HTMLImageElement('/images/a.jpg');
+    const fail = () => listeners.error({ target: img });
+    const fire = () => timers.shift().fn();
+
+    fail();
+    assert.ok(img.hasAttribute('data-failed'));
+    assert.equal(timers[0].ms, 2000);
+    fire();
+    assert.equal(img.reloads, 1, 'first retry');
+    assert.equal(img.getAttribute('src'), '/images/a.jpg');
+    fail();
+    assert.equal(timers[0].ms, 8000);
+    fire();
+    assert.equal(img.reloads, 2, 'second retry');
+    fail();
+    assert.equal(timers.length, 0, 'no third retry: the next refresh takes over');
+    assert.ok(img.hasAttribute('data-failed'));
+    const broken = node('<img src="/images/a.jpg" data-failed="">');
+    assert.equal(swap(broken, node('<img src="/images/a.jpg">')), true, 'a refresh swaps it out');
+
+    // Recovery clears the mark, so the markup matches a fresh render again.
+    const flaky = new HTMLImageElement('/images/b.jpg');
+    listeners.error({ target: flaky });
+    timers.shift().fn();
+    listeners.load({ target: flaky });
+    assert.ok(!flaky.hasAttribute('data-failed'));
+
+    // A node a refresh has already replaced is not reloaded.
+    const gone = new HTMLImageElement('/images/c.jpg');
+    listeners.error({ target: gone });
+    gone.isConnected = false;
+    timers.shift().fn();
+    assert.equal(gone.reloads, 0);
+  });
+  test('every swapped container is watched for failed images', () => {
+    for (const el of ['listEl', 'programContent', 'resourcesList']) {
+      assert.ok(APP_SOURCE.includes(`markFailedImages(${el});`), el);
+    }
+  });
   test('the render paths all go through it', () => {
     // Four call sites: announcements (empty + list) and program (closed + open). The failure
     // messages still write to the containers directly — they replace content by definition.
