@@ -304,6 +304,18 @@ describe('uploaded images', () => {
     assert.equal(await (await sw.getNow('https://elsewhere.example' + IMG)).text(), 'from elsewhere');
   });
 
+  test('a saved copy is looked up ignoring Vary, which the page\'s bare save request would not match', async () => {
+    // The page saves under a bare request; the <img> request carries its own Accept header. Behind
+    // a proxy adding `Vary: Accept`, a plain match would miss every saved copy.
+    const sw = worker({ saved: [IMG] });
+    await sw.ready;
+    const match = sw.images.match;
+    let options;
+    sw.images.match = async (request, opts) => ((options = opts), match(request));
+    await (await sw.get(IMG)).text();
+    assert.equal(options?.ignoreVary, true);
+  });
+
   test('a saved copy that has gone since fails rather than being relayed, and leaves the list', async () => {
     // Pruned in a race with a save, or evicted: relaying it is the cancellation all of this avoids.
     const sw = worker({ saved: [IMG] });
@@ -509,6 +521,15 @@ describe("the page's half (public/app.js)", () => {
     assert.deepEqual(p.posted, []);
     await p.context.reportSavedImage(img(IMG));
     assert.deepEqual(p.posted, [{ type: 'image-saved', path: IMG }]);
+  });
+
+  test('saving watches the announcements and resources, never the program, and pruning follows each render', () => {
+    // A lifted function proves what it does, not that it is called: these are its call sites.
+    assert.ok(APP_SOURCE.includes('saveLoadedImages(listEl);'));
+    assert.ok(APP_SOURCE.includes('saveLoadedImages(resourcesList);'));
+    assert.ok(!APP_SOURCE.includes('saveLoadedImages(programContent)'), 'program images are private');
+    const prunes = APP_SOURCE.match(/renderResources\(\)\]\)(?:\.then\(\(\) => \{|;)\s*pruneSavedImages\(\);/g) ?? [];
+    assert.equal(prunes.length, 2, 'after the launch render and after each resume refresh');
   });
 
   test('pruning keeps what is shown, only after both sections rendered from a real reply', async () => {

@@ -291,7 +291,7 @@ async function saveImageForOffline(img) {
   if (!path.startsWith('/images/') || !('caches' in window)) return;
   try {
     const cache = await caches.open(IMAGE_CACHE);
-    if (!(await cache.match(path))) {
+    if (!(await cache.match(path, { ignoreVary: true }))) {
       const response = await fetch(path, { cache: 'force-cache' });
       if (!response.ok || /no-store/i.test(response.headers.get('Cache-Control') || '')) return;
       await cache.put(path, response);
@@ -312,7 +312,7 @@ async function reportSavedImage(img) {
   const path = new URL(img.src, location.href).pathname;
   if (!path.startsWith('/images/') || !('caches' in window)) return;
   try {
-    if (await (await caches.open(IMAGE_CACHE)).match(path)) {
+    if (await (await caches.open(IMAGE_CACHE)).match(path, { ignoreVary: true })) {
       navigator.serviceWorker?.controller?.postMessage({ type: 'image-saved', path });
     }
   } catch {
@@ -349,15 +349,18 @@ saveLoadedImages(resourcesList);
 async function pruneSavedImages() {
   if (!imagesListed.announcements || !imagesListed.resources || !listEl || !resourcesList) return;
   if (!('caches' in window)) return;
-  const shown = new Set(
-    [...listEl.querySelectorAll('img'), ...resourcesList.querySelectorAll('img')]
-      .filter((img) => img.getAttribute('src'))
-      .map((img) => new URL(img.src, location.href).pathname),
-  );
   try {
     const cache = await caches.open(IMAGE_CACHE);
+    const saved = await cache.keys();
+    // What is shown, read after the list of saved copies rather than before: a render that swapped
+    // in a new image while the keys were being read has saved it by now, and is counted.
+    const shown = new Set(
+      [...listEl.querySelectorAll('img'), ...resourcesList.querySelectorAll('img')]
+        .filter((img) => img.getAttribute('src'))
+        .map((img) => new URL(img.src, location.href).pathname),
+    );
     let removed = false;
-    for (const request of await cache.keys()) {
+    for (const request of saved) {
       if (shown.has(new URL(request.url).pathname)) continue;
       await cache.delete(request);
       removed = true;

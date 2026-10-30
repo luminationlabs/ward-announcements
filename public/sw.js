@@ -209,7 +209,10 @@ self.addEventListener('fetch', (event) => {
 // page's retry then goes to the network directly. Relaying it is the cancellation this avoids.
 async function savedImage(request, path) {
   try {
-    const hit = await (await caches.open(IMAGE_CACHE)).match(request);
+    // ignoreVary: the page saved it under a bare request, and this is the <img> request, with its
+    // own Accept header. A proxy adding `Vary: Accept` (image format negotiation) would otherwise
+    // make every saved copy miss.
+    const hit = await (await caches.open(IMAGE_CACHE)).match(request, { ignoreVary: true });
     if (hit) return hit;
   } catch {
     /* unreadable: treated as gone */
