@@ -19,17 +19,41 @@ const IMAGE_CACHE = 'pushannounce-images';
 // page load (its images are asked for after the page itself), and the page's messages add what it
 // saves in between. Not messages alone: a page saving during an update tells the outgoing worker,
 // and iOS kept the incoming one alive across launches, so it never learned of the copy. `null`
-// until first read; an image asked for before then waits for it (`savedImagesRead`).
+// until the worker's first read. No image ever waits for a read: waiting means promising an answer,
+// and an image that turned out not to be saved would then be relayed — the cancellation all of this
+// exists to avoid (every launch lost its images when a freshly woken worker waited for its first
+// read). An image the list misses offline is recovered by the page instead: it reports the saved
+// copy (`reportSavedImage` in app.js), and its retry is answered from it.
 let savedImages = null;
-async function loadSavedImages() {
-  try {
-    const keys = await (await caches.open(IMAGE_CACHE)).keys();
-    savedImages = new Set(keys.map((request) => new URL(request.url).pathname));
-  } catch {
-    savedImages = new Set(); // nothing readable is nothing saved: every image goes to the network
-  }
+let reading = null; // the read under way, if any
+let readGeneration = 0;
+let savedDuringRead = []; // saves reported while a read is under way, which its snapshot may predate
+
+function loadSavedImages() {
+  const generation = ++readGeneration;
+  savedDuringRead = [];
+  const read = (async () => {
+    await null; // always settle after `reading` is set below, even if Cache Storage throws at once
+    let paths = [];
+    try {
+      paths = (await (await caches.open(IMAGE_CACHE)).keys()).map((request) => new URL(request.url).pathname);
+    } catch {
+      /* nothing readable is nothing saved: every image goes to the network */
+    }
+    if (generation !== readGeneration) return; // a later read is under way; it decides
+    savedImages = new Set([...paths, ...savedDuringRead]);
+    savedDuringRead = [];
+    reading = null;
+  })();
+  reading = read;
+  return read;
 }
-const savedImagesRead = loadSavedImages();
+loadSavedImages();
+
+function noteSavedImage(path) {
+  if (savedImages) savedImages.add(path);
+  if (reading) savedDuringRead.push(path);
+}
 
 // The page asks which build this worker belongs to when a new worker takes control, and reloads
 // only if its own `<meta name="build-id">` disagrees. Answered on the MessageChannel port the page
@@ -38,7 +62,7 @@ const savedImagesRead = loadSavedImages();
 self.addEventListener('message', (event) => {
   const type = event.data && event.data.type;
   // The page saved an image for offline use, or pruned some.
-  if (type === 'image-saved' && savedImages && typeof event.data.path === 'string') savedImages.add(event.data.path);
+  if (type === 'image-saved' && typeof event.data.path === 'string') noteSavedImage(event.data.path);
   if (type === 'images-changed') event.waitUntil(loadSavedImages());
   if (type !== 'build-id') return;
   const reply = { type: 'build-id', buildId: BUILD_ID };
@@ -47,15 +71,82 @@ self.addEventListener('message', (event) => {
   else if (event.source) event.source.postMessage(reply);
 });
 
-self.addEventListener('install', () => {
+// The app shell, fetched into this build's cache when it installs. Without it, an update left the
+// offline copy empty: the page a member had just opened was saved into the *old* build's cache,
+// which activation deletes, and nothing saved it again until the next page load — a resume is not
+// one — so opening the app offline in between found a blank page. Kept to what `index.html` loads,
+// less the manifest: it carries the device token, so it is served `no-store` and never kept.
+const SHELL = ['/', '/app.js', '/install.js', '/styles.css', '/img/install/close.svg'];
+
+// How long saving the shell may hold up the install. Activation waits for it, and a stale page is
+// reloaded only once the new worker takes over, so a fetch hanging on a captive portal must not
+// keep the update waiting.
+const SHELL_SAVE_BUDGET_MS = 10_000;
+
+// Best effort, all at once (the takeover waits for this) and never failing the install: a missing
+// file only means it is saved on its next fetch, as before. Same rule as the fetch handler —
+// nothing `no-store`, which is how the access gate page stays out (a lapsed member cookie gets it
+// in place of `/`), and no redirect.
+async function saveShell() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SHELL_SAVE_BUDGET_MS);
+  try {
+    const cache = await caches.open(CACHE);
+    await Promise.all(
+      SHELL.map(async (path) => {
+        try {
+          const response = await fetch(path, { cache: 'no-cache', signal: controller.signal });
+          const noStore = /no-store/i.test(response.headers.get('Cache-Control') || '');
+          if (response.ok && !response.redirected && !noStore) await cache.put(path, response);
+        } catch {
+          /* offline, refused or out of time: left for the next fetch */
+        }
+      }),
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+self.addEventListener('install', (event) => {
   self.skipWaiting();
+  event.waitUntil(saveShell().catch(() => {}));
 });
+
+// The ward's replies (`/api/*`) are not tied to a build, so an update carries the previous build's
+// copies over rather than leaving the app with nothing to show offline until each is fetched again.
+// What is private about them is enforced when a copy is served (the program's `closesAt`) and by
+// `dropPrivateCopies`, which empties every build's cache, so a copy it dropped cannot come back
+// from an old one. Images an older worker kept here (before IMAGE_CACHE) move there: they were
+// only ever stored when not `no-store`, so never a program's.
+async function carryOverReplies(oldName) {
+  const [from, to, images] = await Promise.all([caches.open(oldName), caches.open(CACHE), caches.open(IMAGE_CACHE)]);
+  for (const request of await from.keys()) {
+    const path = new URL(request.url).pathname;
+    const into = path.startsWith('/api/') ? to : path.startsWith('/images/') ? images : null;
+    if (!into || (await into.match(request))) continue; // not carried, or already here: newer
+    const response = await from.match(request);
+    if (!response) continue;
+    await into.put(request, response);
+    // Dropped from the old cache meanwhile (a 401 emptied every cache while this was copying): the
+    // carried copy goes too, or it would outlive the access it was dropped for.
+    if (into === to && !(await from.match(request))) await to.delete(request);
+  }
+}
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
-      const keys = await caches.keys();
-      await Promise.all(keys.filter((k) => k !== CACHE && k !== IMAGE_CACHE).map((k) => caches.delete(k)));
+      const old = (await caches.keys()).filter((k) => k !== CACHE && k !== IMAGE_CACHE);
+      for (const name of old) {
+        try {
+          if (name.startsWith('pushannounce-')) await carryOverReplies(name);
+        } catch {
+          /* nothing carried is no worse than before */
+        }
+      }
+      await Promise.all(old.map((k) => caches.delete(k)));
+      await loadSavedImages(); // images carried in above
       await self.clients.claim();
     })(),
   );
@@ -73,16 +164,9 @@ self.addEventListener('fetch', (event) => {
   // every image still in flight is cancelled and shows as a broken box — a new flyer, on the first
   // open after any change to the app's files. The browser's HTTP cache is no substitute for the
   // saved copy: a home-screen app did not keep images across launches even marked `immutable`.
-  const imagePath = new URL(request.url).pathname;
-  if (imagePath.startsWith('/images/')) {
-    if (savedImages === null) {
-      // Asked for before the startup read finished (a worker woken by this launch, a page served
-      // fast): wait for it rather than miss a saved copy offline. Relays only an unsaved image in
-      // those first moments of a worker's life.
-      event.respondWith(savedImagesRead.then(() => (savedImages.has(imagePath) ? savedImage(request) : fetch(request))));
-    } else if (savedImages.has(imagePath)) {
-      event.respondWith(savedImage(request));
-    }
+  const url = new URL(request.url);
+  if (url.origin === self.location.origin && url.pathname.startsWith('/images/')) {
+    if (savedImages && savedImages.has(url.pathname)) event.respondWith(savedImage(request, url.pathname));
     return;
   }
   event.respondWith(
@@ -120,10 +204,18 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// A saved image, or the network if its copy has gone since the worker last read the cache.
-async function savedImage(request) {
-  const hit = await (await caches.open(IMAGE_CACHE)).match(request);
-  return hit || fetch(request);
+// A saved image. If its copy has gone since the list was read (pruned in a race with a save, evicted)
+// or the cache cannot be read, the image fails rather than being relayed, and leaves the list: the
+// page's retry then goes to the network directly. Relaying it is the cancellation this avoids.
+async function savedImage(request, path) {
+  try {
+    const hit = await (await caches.open(IMAGE_CACHE)).match(request);
+    if (hit) return hit;
+  } catch {
+    /* unreadable: treated as gone */
+  }
+  if (savedImages) savedImages.delete(path);
+  return Response.error();
 }
 
 // An open program past its `closesAt`. A copy without one (cached before the server sent it) is
@@ -137,10 +229,15 @@ async function programHasClosed(response) {
   }
 }
 
+// Every build's cache, not only this one: an update carries replies over from older caches, and an
+// API fetch finishing after an update can recreate one, so a copy left there would come back.
 async function dropPrivateCopies() {
-  const cache = await caches.open(CACHE);
-  for (const request of await cache.keys()) {
-    if (new URL(request.url).pathname.startsWith('/api/')) await cache.delete(request);
+  for (const name of await caches.keys()) {
+    if (!name.startsWith('pushannounce-') || name === IMAGE_CACHE) continue;
+    const cache = await caches.open(name);
+    for (const request of await cache.keys()) {
+      if (new URL(request.url).pathname.startsWith('/api/')) await cache.delete(request);
+    }
   }
 }
 

@@ -304,12 +304,35 @@ async function saveImageForOffline(img) {
   }
 }
 
+/**
+ * An image that failed may have a saved copy the service worker's list is missing (a worker kept
+ * alive across launches, offline). Report it, so `markFailedImages`' retry is answered from it.
+ */
+async function reportSavedImage(img) {
+  const path = new URL(img.src, location.href).pathname;
+  if (!path.startsWith('/images/') || !('caches' in window)) return;
+  try {
+    if (await (await caches.open(IMAGE_CACHE)).match(path)) {
+      navigator.serviceWorker?.controller?.postMessage({ type: 'image-saved', path });
+    }
+  } catch {
+    /* best effort */
+  }
+}
+
 function saveLoadedImages(container) {
   if (!container) return;
   container.addEventListener(
     'load',
     (e) => {
       if (e.target instanceof HTMLImageElement) saveImageForOffline(e.target);
+    },
+    true,
+  );
+  container.addEventListener(
+    'error',
+    (e) => {
+      if (e.target instanceof HTMLImageElement && e.target.getAttribute('src')) reportSavedImage(e.target);
     },
     true,
   );
