@@ -594,10 +594,33 @@ h2 {
    inline for the paste's sake; this only frames it so it reads as "the thing you are about to copy". */
 .preview-actions {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 0.6rem;
-  flex-wrap: wrap;
   margin: 0.75rem 0;
+}
+/* The buttons on one row (the status beside them), and the choices that shape what they make on
+   the row under it, so a checkbox never wraps in between the buttons. */
+.preview-buttons,
+.preview-options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.preview-options {
+  gap: 0.35rem 1.25rem;
+}
+.preview-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+}
+.preview-options label[hidden] {
+  display: none;
+}
+.preview-options input[type='checkbox'] {
+  margin: 0;
 }
 /* Turns beside the status text while the PDF tools download and the file is built. */
 .spinner {

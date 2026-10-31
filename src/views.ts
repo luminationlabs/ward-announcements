@@ -2524,6 +2524,7 @@ export function appLinkHtml(link: { url: string; through: string | null }): stri
  */
 function previewControls(bodyId: string, opts: { pageLink?: boolean } = {}): string {
   return `<div class="preview-actions">
+        <div class="preview-buttons">
         <button type="button" class="btn small primary" data-copy-preview="${bodyId}">Copy</button>
         <button type="button" class="btn small" data-pdf-preview="${bodyId}" data-title="${escapeHtml(config.appName)}">Save as PDF</button>
         ${
@@ -2531,10 +2532,13 @@ function previewControls(bodyId: string, opts: { pageLink?: boolean } = {}): str
             ? `<a class="btn small" href="/admin/announcements/preview" target="_blank" rel="noopener">Open as a Page</a>`
             : ''
         }
-        <label class="muted small"><input type="checkbox" data-app-link-toggle="${bodyId}"> Include a link to the app</label>
-        <label class="muted small" data-pdf-pages-option="${bodyId}" hidden><input type="checkbox" data-pdf-pages-toggle> <span data-pdf-pages-label>Print multi-page PDFs in full at the end</span></label>
         <span class="spinner" data-pdf-spinner hidden aria-hidden="true"></span>
         <span class="muted small" data-copy-status hidden aria-live="polite"></span>
+        </div>
+        <div class="preview-options">
+          <label class="muted small"><input type="checkbox" data-app-link-toggle="${bodyId}"> Include a link to the app</label>
+          <label class="muted small" data-pdf-pages-option="${bodyId}" hidden><input type="checkbox" data-pdf-pages-toggle> <span data-pdf-pages-label>Print multi-page PDFs in full at the end</span></label>
+        </div>
       </div>`;
 }
 
