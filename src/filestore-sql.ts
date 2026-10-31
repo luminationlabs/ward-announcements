@@ -11,7 +11,7 @@
  *
  * Base64 text rather than a BLOB: D1 hands a BLOB back as an array of numbers, one JSON element per
  * byte, where a string comes back as a string and `Buffer` decodes it natively. Chunked because a
- * D1 row is capped at 2 MB and `MAX_UPLOAD_BYTES` is 3 MB.
+ * D1 row is capped at 2 MB, and an image may be 3 MB and a PDF 5 (`maxBytesFor`).
  */
 import { deleteFileChunks, getFileChunks, putFileChunks } from './db.js';
 import type { FileStore, StoredFile } from './filestore.js';

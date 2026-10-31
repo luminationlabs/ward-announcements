@@ -184,10 +184,11 @@ async function main() {
 
   // --- images ---
   const notes = [];
+  // Each row under its file's key and, for a PDF, its thumbnail's: both are images/<key> in the ZIP.
   const attachments = new Map(
-    (plan.tables.find((t) => t.name === 'attachments')?.rows ?? []).map((row) => {
+    (plan.tables.find((t) => t.name === 'attachments')?.rows ?? []).flatMap((row) => {
       const r = Object.fromEntries(row.columns.map((c, i) => [c, row.values[i]]));
-      return [String(r.key), r];
+      return r.thumb_key ? [[String(r.key), r], [String(r.thumb_key), r]] : [[String(r.key), r]];
     }),
   );
   let dir = null;
@@ -204,7 +205,9 @@ async function main() {
       // The rule the many-ward host's import applies (src/ward-import.ts): an extension this app
       // makes, and a row that says the same type. A backup is a file anyone could have edited, and
       // a `.html` entry stored as text/html would be served from the ward's own origin.
-      const type = String(attachments.get(key).content_type).toLowerCase();
+      // A PDF's thumbnail is a JPEG whatever the row's own type (importedTypeFor in ward-import.ts).
+      const row = attachments.get(key);
+      const type = row.thumb_key === key && row.key !== key ? 'image/jpeg' : String(row.content_type).toLowerCase();
       if (contentTypeForKey(key) !== type) {
         notes.push(`skipped images/${key}: not an allowed image type (${type})`);
         continue;

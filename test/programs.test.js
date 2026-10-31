@@ -436,6 +436,45 @@ describe('images and deleting', () => {
     );
   });
 
+  test("today's program PDF opens from its link alone, for that file and only inside the window", async () => {
+    // An iPhone's home-screen app opens the PDF in a new window that may not carry the member
+    // cookie, so the link carries a token (fileLinkToken in src/access.ts).
+    const data = new FormData();
+    data.append('owner_type', 'program');
+    data.append('owner_id', String(todayProgramId));
+    data.append('file', new Blob([Buffer.from('%PDF-1.4\n%%EOF\n')], { type: 'application/pdf' }), 'insert.pdf');
+    data.append('thumb', new Blob([Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 0])], { type: 'image/jpeg' }), 'thumb.jpg');
+    const added = await (await req('/admin/attachments', { as: 'admin', method: 'POST', formData: data })).json();
+    assert.ok(added.pdf, 'uploaded as a PDF');
+    // The upload's own link carries the dashboard's token; members get one of their own.
+    const pdfPath = added.pdf.split('?')[0];
+
+    const body = await (await getProgram()).json();
+    const listed = body.images.find((i) => i.pdf?.startsWith(pdfPath));
+    assert.ok(listed, 'the program lists the PDF');
+    assert.match(listed.pdf, new RegExp(`^${pdfPath}\\?t=\\d+\\.[\\w-]+$`), 'its link carries a token');
+    const token = new URL(listed.pdf, 'http://x').searchParams.get('t');
+
+    // No cookie at all: the token is the whole of the way in.
+    const opened = await req(listed.pdf);
+    assert.equal(opened.status, 200);
+    assert.equal(opened.headers.get('content-type'), 'application/pdf');
+    assert.equal(opened.headers.get('cache-control'), 'private, no-store');
+    assert.equal((await req(pdfPath)).status, 404, 'without it, a stranger gets nothing');
+    assert.equal((await req(`${added.url}?t=${token}`)).status, 404, 'it opens that one file, not its thumbnail');
+    assert.equal((await req(`${pdfPath}?t=${token.slice(0, -2)}xx`)).status, 404, 'a tampered token is no token');
+    const [, sig] = token.split('.');
+    assert.equal((await req(`${pdfPath}?t=99999999999.${sig}`)).status, 404, 'nor is one with its expiry moved');
+
+    // Once the window shuts, the token opens nothing, whatever its own expiry says.
+    await setWindow('closed');
+    try {
+      assert.equal((await req(listed.pdf)).status, 404);
+    } finally {
+      await setWindow('open');
+    }
+  });
+
   test('deleting a program takes its images with it', async () => {
     const res = await adminPost(`/admin/programs/${programId}/delete`);
     assert.equal(res.status, 302);

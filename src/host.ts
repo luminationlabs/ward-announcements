@@ -33,7 +33,7 @@ import { isValidKey, withPrefix, type FileStore } from './filestore.js';
 import { restoreWrites } from './restore.js';
 import { sealBackupSettings } from './seal.js';
 import type { SqlDriver } from './sqldriver.js';
-import { checkImportedImage, prepareImport, RestoreError, type ImportReport } from './ward-import.js';
+import { checkImportedImage, importedTypeFor, prepareImport, RestoreError, type ImportReport } from './ward-import.js';
 import { stripImageMetadata } from './image-meta.js';
 import { VAPID_KEYS_SETTING } from './identity.js';
 import { createR2FileStore, type R2BucketLike } from './filestore-r2.js';
@@ -585,8 +585,9 @@ export class WardDO {
         }
         // A backup made before the app stripped metadata still carries it: strip on the way in, as
         // an upload does, and let the row's size follow the bytes (the quota sums it).
-        const stripped = stripImageMetadata(bytes, row!.content_type.toLowerCase());
-        await this.files!.put(key, stripped, row!.content_type.toLowerCase());
+        const type = importedTypeFor(key, row!);
+        const stripped = stripImageMetadata(bytes, type);
+        await this.files!.put(key, stripped, type);
         if (stripped.byteLength !== bytes.byteLength) await setAttachmentSize(key, stripped.byteLength);
         results.push({ key, status: 'restored' });
       } catch (err) {

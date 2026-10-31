@@ -31,17 +31,19 @@ export interface FileStore {
 // ---------------------------------------------------------------------------
 
 /**
- * The image types an admin may attach, and the extension each is stored under.
+ * The types an admin may attach, and the extension each is stored under.
  *
- * Deliberately short: these four are what phones produce and what every browser renders. The
- * extension is part of the storage key, which is how the filesystem store recovers a content type
- * without a sidecar record (see `contentTypeForKey`).
+ * Deliberately short: four image types, which are what phones produce and what every browser
+ * renders, and PDF, which is how a stake flyer or a printed insert usually arrives. The extension is
+ * part of the storage key, which is how the filesystem store recovers a content type without a
+ * sidecar record (see `contentTypeForKey`).
  */
 const EXTENSIONS: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
   'image/webp': 'webp',
   'image/gif': 'gif',
+  'application/pdf': 'pdf',
 };
 
 /** Reverse of `EXTENSIONS`, including the `jpeg` spelling a browser may hand us. */
@@ -51,7 +53,11 @@ const CONTENT_TYPES: Record<string, string> = {
   png: 'image/png',
   webp: 'image/webp',
   gif: 'image/gif',
+  pdf: 'application/pdf',
 };
+
+/** The one attachment type that is not an image: it is opened, not shown, and has a thumbnail. */
+export const PDF_TYPE = 'application/pdf';
 
 /**
  * Ceiling on one upload. The admin editor downscales in the browser first (1600px, JPEG q0.85),
@@ -59,6 +65,31 @@ const CONTENT_TYPES: Record<string, string> = {
  * shrink — an animated GIF, or a hand-crafted request.
  */
 export const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
+
+/**
+ * Ceiling on one PDF. A PDF cannot be downscaled in the browser the way a photo is, and a stake
+ * flyer exported from a desktop publisher is often a few MB. Kept at 5 MB rather than more for two
+ * reasons: storing one in D1 base64-encodes it inside a free-plan Worker's few milliseconds of CPU,
+ * and the many-ward host's Import Backup sends each file inside an 8 MB JSON batch
+ * (`MAX_IMAGE_BATCH_BYTES`), which a 5 MB file still fits once base64'd.
+ */
+export const MAX_PDF_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Whether bytes are a PDF: every one opens `%PDF-`, though some writers put a little junk first and
+ * readers look for it in the first 1 KB.
+ */
+export function isPdfBytes(bytes: Uint8Array): boolean {
+  const marker = [0x25, 0x50, 0x44, 0x46, 0x2d]; // %PDF-
+  const end = Math.min(bytes.length, 1024) - marker.length;
+  for (let i = 0; i <= end; i++) if (marker.every((b, j) => bytes[i + j] === b)) return true;
+  return false;
+}
+
+/** The ceiling for one stored object of `contentType`. */
+export function maxBytesFor(contentType: string): number {
+  return contentType === PDF_TYPE ? MAX_PDF_BYTES : MAX_UPLOAD_BYTES;
+}
 
 /**
  * Ceiling on attachments per owner, enforced server-side.

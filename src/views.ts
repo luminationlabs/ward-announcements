@@ -29,6 +29,7 @@ import {
 } from './meeting.js';
 import { themeHeadScript } from './theme.js';
 import { scriptTag } from './csp.js';
+import { MAX_PDF_BYTES } from './filestore.js';
 import type { Role, Who } from './auth.js';
 import type { WARD_LIMITS, WardSettings } from './ward-settings.js';
 
@@ -676,12 +677,17 @@ function programDateHeading(date: string): string {
  * Markdown. The thumbnails are plain links (the dashboard has no lightbox) that open the image in
  * a new tab.
  */
-export function programPreviewHtml(p: { date: string; body: string; images: { url: string }[] }): string {
+export function programPreviewHtml(p: {
+  date: string;
+  body: string;
+  images: { url: string; pdf?: string }[];
+}): string {
   const thumbs = p.images.length
     ? `<div class="thumbs">${p.images
-        .map(
-          (i) =>
-            `<a class="thumb" href="${escapeHtml(i.url)}" target="_blank" rel="noopener" aria-label="View image"><img src="${escapeHtml(i.url)}" alt="" loading="lazy" /></a>`,
+        .map((i) =>
+          i.pdf
+            ? `<a class="thumb pdf-thumb" href="${escapeHtml(i.pdf)}" target="_blank" rel="noopener" aria-label="Open PDF"><img src="${escapeHtml(i.url)}" alt="" loading="lazy" /><span class="pdf-badge">PDF</span></a>`
+            : `<a class="thumb" href="${escapeHtml(i.url)}" target="_blank" rel="noopener" aria-label="View image"><img src="${escapeHtml(i.url)}" alt="" loading="lazy" /></a>`,
         )
         .join('')}</div>`
     : '';
@@ -3373,13 +3379,22 @@ ${rows}
   );
 }
 
+/** An attachment on an editor page; a PDF carries the link to open it (`dashboardPdfHref` in app.ts). */
+export type EditorAttachment = AttachmentRow & { pdfHref?: string };
+
 /**
  * One thumbnail in the editor's Images list. `data-attachment` carries the row id, which is what
- * the delete button and the upload script address rows by.
+ * the delete button and the upload script address rows by. A PDF shows its first page, badged, as a
+ * link to the PDF itself.
  */
-function attachmentThumb(row: AttachmentRow): string {
+function attachmentThumb(row: EditorAttachment): string {
+  const img = `<img src="/images/${escapeHtml(row.thumb_key ?? row.key)}" alt="${escapeHtml(row.filename ?? '')}" loading="lazy" />`;
   return `          <li class="attachment" data-attachment="${row.id}">
-            <img src="/images/${escapeHtml(row.key)}" alt="${escapeHtml(row.filename ?? '')}" loading="lazy" />
+            ${
+              row.thumb_key
+                ? `<a class="pdf-thumb" href="${escapeHtml(row.pdfHref ?? `/images/${row.key}`)}" target="_blank" rel="noopener">${img}<span class="pdf-badge">PDF</span></a>`
+                : img
+            }
             <button type="button" class="btn small danger" data-delete-attachment="${row.id}">Remove</button>
           </li>`;
 }
@@ -3398,7 +3413,7 @@ function attachmentThumb(row: AttachmentRow): string {
 function imagesCard(opts: {
   ownerType: string;
   ownerId?: number;
-  attachments?: AttachmentRow[];
+  attachments?: EditorAttachment[];
   maxAttachments: number;
   blurb: string;
   pending: string;
@@ -3408,8 +3423,10 @@ function imagesCard(opts: {
   // that belongs to the content form (`form="content-form"`), and the save attaches them.
   const isNew = opts.ownerId === undefined;
   return `    <section class="card">
-      <h3>Images</h3>
-      <p class="muted small">${opts.blurb}${isNew ? ` ${opts.pending}` : ''}</p>
+      <h3>Images and PDFs</h3>
+      <p class="muted small">${opts.blurb} A PDF (up to ${Math.round(
+        MAX_PDF_BYTES / (1024 * 1024),
+      )} MB) shows its first page, and opens when tapped.${isNew ? ` ${opts.pending}` : ''}</p>
       ${
         isNew
           ? `<input type="hidden" name="pending_images" id="pending-images" form="content-form" value="${attachments
@@ -3422,13 +3439,13 @@ function imagesCard(opts: {
       )}" data-owner-id="${isNew ? '' : opts.ownerId}" data-max="${opts.maxAttachments}">
 ${attachments.map(attachmentThumb).join('\n')}
       </ul>
-      <p class="muted small" id="attachment-empty"${attachments.length ? ' hidden' : ''}>No images yet.</p>
+      <p class="muted small" id="attachment-empty"${attachments.length ? ' hidden' : ''}>No images or PDFs yet.</p>
       <div class="actions attachment-actions">
         <!-- The real file input, visually hidden but still focusable, under a label drawn as a
              button: the browser's own "Choose File / No file chosen" control matched nothing else
              on the page. Choosing a file uploads it — there is no second button to forget. -->
-        <input id="image-input" class="file-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" />
-        <label for="image-input" class="btn small file-button">Add Image…</label>
+        <input id="image-input" class="file-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif,application/pdf" />
+        <label for="image-input" class="btn small file-button">Add Image or PDF…</label>
       </div>
       <p class="muted small" id="image-status" aria-live="polite"></p>
     </section>`;
@@ -3484,7 +3501,7 @@ function editorScripts(opts: { kind: 'announcement' | 'page' | 'program'; placeh
         var full = count() >= max;
         input.disabled = full;
         empty.hidden = count() > 0;
-        if (full) status.textContent = 'That is the maximum of ' + max + ' images.';
+        if (full) status.textContent = 'That is the maximum of ' + max + ' images and PDFs.';
         else if (status.textContent.indexOf('maximum') > -1) status.textContent = '';
       }
 
@@ -3525,6 +3542,61 @@ function editorScripts(opts: { kind: 'announcement' | 'page' | 'program'; placeh
           });
       }
 
+      // A PDF's thumbnail: its first page, drawn here with pdf.js (loaded only now, and only on the
+      // dashboard) because the server has no CPU to spare for drawing one. 600px on the long side is
+      // a member's 140px-high thumbnail at 3x and then some. White behind the page, since a PDF's
+      // page is transparent where nothing is drawn and a JPEG would make that black.
+      var PDF_MAX = ${MAX_PDF_BYTES};
+      function isPdf(file) {
+        return file.type === 'application/pdf' || /[.]pdf$/i.test(file.name || '');
+      }
+      function pdfThumb(file) {
+        // The loading task, not the document, is what pdf.js 6 tears down (and its worker with it).
+        var task;
+        function done() {
+          if (task) task.destroy().catch(function () {});
+        }
+        return import('/vendor/pdfjs/pdf.min.js')
+          .then(function (pdfjs) {
+            pdfjs.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.js';
+            return file.arrayBuffer().then(function (buffer) {
+              // Absolute, since the worker fetches them; see scripts/vendor-pdfjs.mjs for what each is.
+              var base = location.origin + '/vendor/pdfjs/';
+              task = pdfjs.getDocument({
+                data: new Uint8Array(buffer),
+                wasmUrl: base + 'wasm/',
+                cMapUrl: base + 'cmaps/',
+                cMapPacked: true,
+                standardFontDataUrl: base + 'standard_fonts/',
+                iccUrl: base + 'iccs/',
+              });
+              return task.promise;
+            });
+          })
+          .then(function (doc) {
+            return doc.getPage(1);
+          })
+          .then(function (page) {
+            var base = page.getViewport({ scale: 1 });
+            var viewport = page.getViewport({ scale: 600 / Math.max(base.width, base.height) });
+            var canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(viewport.width));
+            canvas.height = Math.max(1, Math.round(viewport.height));
+            var ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            return page.render({ canvasContext: ctx, viewport: viewport }).promise.then(function () {
+              return new Promise(function (resolve, reject) {
+                canvas.toBlob(function (blob) { blob ? resolve(blob) : reject(new Error('no thumbnail')); }, 'image/jpeg', 0.85);
+              });
+            });
+          })
+          .then(
+            function (blob) { done(); return blob; },
+            function (err) { done(); throw err; },
+          );
+      }
+
       function addThumb(added) {
         var li = document.createElement('li');
         li.className = 'attachment';
@@ -3533,12 +3605,25 @@ function editorScripts(opts: { kind: 'announcement' | 'page' | 'program'; placeh
         img.src = added.url;
         img.alt = added.alt || '';
         img.loading = 'lazy';
+        var shown = img;
+        if (added.pdf) {
+          shown = document.createElement('a');
+          shown.className = 'pdf-thumb';
+          shown.href = added.pdf;
+          shown.target = '_blank';
+          shown.rel = 'noopener';
+          var badge = document.createElement('span');
+          badge.className = 'pdf-badge';
+          badge.textContent = 'PDF';
+          shown.appendChild(img);
+          shown.appendChild(badge);
+        }
         var remove = document.createElement('button');
         remove.type = 'button';
         remove.className = 'btn small danger';
         remove.setAttribute('data-delete-attachment', added.id);
         remove.textContent = 'Remove';
-        li.appendChild(img);
+        li.appendChild(shown);
         li.appendChild(remove);
         list.appendChild(li);
       }
@@ -3546,17 +3631,43 @@ function editorScripts(opts: { kind: 'announcement' | 'page' | 'program'; placeh
       function upload() {
         var file = input.files && input.files[0];
         if (!file) {
-          status.textContent = 'Choose an image first.';
+          status.textContent = 'Choose a file first.';
+          return;
+        }
+        var pdf = isPdf(file);
+        // Said here rather than after the upload: a PDF cannot be shrunk, and five megabytes is a
+        // long wait on a phone for the server's 413.
+        if (pdf && file.size > PDF_MAX) {
+          status.textContent = 'PDFs must be under ' + Math.round(PDF_MAX / 1048576) + ' MB.';
+          input.value = '';
           return;
         }
         input.disabled = true;
-        status.textContent = 'Uploading…';
-        shrink(file)
+        status.textContent = pdf ? 'Preparing the PDF…' : 'Uploading…';
+        var prepare = pdf
+          ? pdfThumb(file).then(
+              function (thumb) {
+                status.textContent = 'Uploading…';
+                return { file: file, thumb: thumb };
+              },
+              function (err) {
+                console.error('PDF thumbnail failed', err); // the message below is for the clerk; this is for whoever debugs it
+                if (err && err.name === 'PasswordException') {
+                  throw new Error('That PDF is password-protected. Save a copy without the password, or attach a picture of it.');
+                }
+                throw new Error('Could not read that PDF. If it opens elsewhere, try another browser, or attach a picture of it.');
+              },
+            )
+          : shrink(file).then(function (prepared) { return { file: prepared }; });
+        prepare
           .then(function (prepared) {
             var data = new FormData();
             data.append('owner_type', ownerType);
             data.append('owner_id', ownerId); // empty on a New page: the upload is pending
-            data.append('file', prepared, prepared.name || 'image.jpg');
+            // A PDF goes up as one whatever the browser called it (some report no type at all).
+            var upload = pdf ? new File([prepared.file], prepared.file.name || 'document.pdf', { type: 'application/pdf' }) : prepared.file;
+            data.append('file', upload, upload.name || 'image.jpg');
+            if (prepared.thumb) data.append('thumb', prepared.thumb, 'thumb.jpg');
             return fetch('/admin/attachments', { method: 'POST', body: data, redirect: 'manual' });
           })
           .then(function (res) {
@@ -3589,7 +3700,8 @@ function editorScripts(opts: { kind: 'announcement' | 'page' | 'program'; placeh
       list.addEventListener('click', function (e) {
         var target = e.target.closest('[data-delete-attachment]');
         if (!target) return;
-        if (!confirm('Remove this image?')) return;
+        var item = target.closest('[data-attachment]');
+        if (!confirm(item && item.querySelector('.pdf-thumb') ? 'Remove this PDF?' : 'Remove this image?')) return;
         target.disabled = true;
         fetch('/admin/attachments/' + target.getAttribute('data-delete-attachment'), {
           method: 'DELETE',
@@ -3604,7 +3716,7 @@ function editorScripts(opts: { kind: 'announcement' | 'page' | 'program'; placeh
           })
           .catch(function () {
             target.disabled = false;
-            status.textContent = 'Could not remove that image — please try again.';
+            status.textContent = 'Could not remove that — please try again.';
           });
       });
       sync();
@@ -3615,9 +3727,9 @@ function editorScripts(opts: { kind: 'announcement' | 'page' | 'program'; placeh
 export function announcementForm(opts: {
   mode: 'new' | 'edit';
   announcement?: AnnouncementRow;
-  attachments?: AttachmentRow[];
+  attachments?: EditorAttachment[];
   /** A New form sent back after a rejected save: the images already uploaded to it, still pending. */
-  pendingAttachments?: AttachmentRow[];
+  pendingAttachments?: EditorAttachment[];
   maxAttachments?: number;
   error?: string;
   /**
@@ -3706,9 +3818,9 @@ ${images}`,
 export function pageForm(opts: {
   mode: 'new' | 'edit';
   page?: PageRow;
-  attachments?: AttachmentRow[];
+  attachments?: EditorAttachment[];
   /** A New form sent back after a rejected save: the images already uploaded to it, still pending. */
-  pendingAttachments?: AttachmentRow[];
+  pendingAttachments?: EditorAttachment[];
   maxAttachments?: number;
   error?: string;
   /** A message from the redirect that created this page (`?msg=`). */
@@ -3844,9 +3956,9 @@ export function programForm(opts: {
   program?: ProgramRow;
   defaultDate?: string;
   settings: ProgramSettings;
-  attachments?: AttachmentRow[];
+  attachments?: EditorAttachment[];
   /** A New form sent back after a rejected save: the images already uploaded to it, still pending. */
-  pendingAttachments?: AttachmentRow[];
+  pendingAttachments?: EditorAttachment[];
   maxAttachments?: number;
   error?: string;
   flash?: string;

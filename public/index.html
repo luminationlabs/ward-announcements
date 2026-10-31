@@ -229,6 +229,28 @@
       <img id="lightbox-img" class="lightbox-img" alt="" />
     </div>
 
+    <!-- Viewer for an attached PDF (app.js draws its pages here with pdf.js). Not the phone's own
+         viewer: a home-screen app on iOS opens a same-site PDF in place of the app, with no way back
+         but force-quitting it. "Open original" is for a browser tab, and is hidden in that app. -->
+    <div id="pdf-viewer" class="pdf-viewer" role="dialog" aria-modal="true" aria-label="PDF" hidden>
+      <div class="pdf-viewer-bar">
+        <button id="pdf-viewer-close" class="pdf-viewer-close" type="button">Done</button>
+        <span id="pdf-viewer-status" class="pdf-viewer-status" aria-live="polite"></span>
+        <!-- The share icon iOS itself uses (a box with an arrow up), so it reads as "Save to Files, Print…". -->
+        <button id="pdf-viewer-share" class="pdf-viewer-share" type="button" aria-label="Save or share" title="Save or share" hidden>
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"
+               fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3v12" />
+            <path d="M8 7l4-4 4 4" />
+            <path d="M8 10H6a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-2" />
+          </svg>
+        </button>
+        <a id="pdf-viewer-original" class="pdf-viewer-original" target="_blank" rel="noopener" hidden>Open original</a>
+      </div>
+      <div id="pdf-viewer-pages" class="pdf-viewer-pages"></div>
+    </div>
+
     <script src="/app.js"></script>
     <script src="/install.js"></script>
   </body>

@@ -403,6 +403,40 @@ export async function hasAccess(c: Context): Promise<AccessGrant | null> {
 }
 
 /**
+ * A token that opens one private file (a PDF) without a cookie, until `expires` (epoch ms). A PDF
+ * link can be opened somewhere the cookie is not — the member viewer's "Open original" in another
+ * tab, a dashboard link in a new window an iPhone home-screen app may not share its cookies with —
+ * so the link carries its own way in. Scoped to the one key and signed with the
+ * member cookie's secret (so "sign out everyone" kills outstanding links with the cookies).
+ *
+ * Two kinds, signed apart so one can never pass for the other: a `member` token stands in for the
+ * member cookie and is checked *in addition to* the program's window, never instead of it; a
+ * `dashboard` token stands in for a dashboard session, for the PDFs on the editor pages.
+ */
+export type FileLinkScope = 'member' | 'dashboard';
+
+function fileLinkPayload(scope: FileLinkScope, key: string, exp: number): string {
+  return `${scope === 'member' ? 'file' : 'dash-file'}.${key}.${exp}`;
+}
+
+export async function fileLinkToken(key: string, expires: number, scope: FileLinkScope = 'member'): Promise<string> {
+  const exp = Math.floor(expires / 1000);
+  return `${exp}.${await sign(fileLinkPayload(scope, key, exp))}`;
+}
+
+/** Whether `token` is a live `fileLinkToken` of that scope for `key`. Anything malformed is simply not one. */
+export async function fileLinkValid(key: string, token: unknown, scope: FileLinkScope = 'member'): Promise<boolean> {
+  if (typeof token !== 'string') return false;
+  const match = /^(\d{1,12})\.([\w-]+)$/.exec(token);
+  if (!match) return false;
+  const exp = Number(match[1]);
+  if (exp * 1000 <= Date.now()) return false;
+  const given = Buffer.from(match[2]!, 'utf8');
+  const expected = Buffer.from(await sign(fileLinkPayload(scope, key, exp)), 'utf8');
+  return given.length === expected.length && timingSafeEqual(given, expected);
+}
+
+/**
  * Set (or slide) the access cookie. Pass an existing grant to keep its device id — that id is what
  * ties an installed app to its `start_url` device token, so losing it would orphan the token.
  */

@@ -31,6 +31,7 @@ data/
 # Generated assets (recreated by `npm run assets`)
 public/icons/
 public/vendor/pdfmake/
+public/vendor/pdfjs/
 public/vendor/editor.js
 public/vendor/passkey.js
 

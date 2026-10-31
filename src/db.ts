@@ -210,6 +210,9 @@ const SCHEMA: string[] = [
   // `owner_type` is 'announcement', 'program' or 'page'; every function over this table takes the
   // owner type rather than assuming, which is what made attaching images to programs (and then
   // pages) a new value here rather than a migration.
+  //
+  // A PDF is one row with two objects: `key` is the PDF, `thumb_key` a JPEG of its first page that
+  // the dashboard drew when it was uploaded (the server has no CPU to draw one). Null for an image.
   `CREATE TABLE IF NOT EXISTS attachments (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_type   TEXT NOT NULL,                      -- 'announcement' | 'program' | 'page'
@@ -218,7 +221,8 @@ const SCHEMA: string[] = [
     filename     TEXT,                               -- what the admin's file was called, for alt text
     content_type TEXT NOT NULL,
     size         INTEGER NOT NULL,
-    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    thumb_key    TEXT                                -- a PDF's first page, also under /images/
   )`,
 
   `CREATE INDEX IF NOT EXISTS idx_attachments_owner ON attachments (owner_type, owner_id)`,
@@ -303,8 +307,9 @@ const SCHEMA: string[] = [
  * 8 — `admin_passkeys.label` (the device a passkey was made on).
  * 9 — the `spent_challenges` table (answered WebAuthn challenges, so one cannot be answered twice).
  * 10 — the `blocked_subscriptions` table (devices removed under Subscribers, so a launch cannot re-add them).
+ * 11 — `attachments.thumb_key` (a PDF attachment's first-page thumbnail).
  */
-const SCHEMA_VERSION = '10';
+const SCHEMA_VERSION = '11';
 
 /**
  * Columns an already-created table needs. `CREATE TABLE IF NOT EXISTS` cannot express one, so the
@@ -340,6 +345,11 @@ const MIGRATIONS: { table: string; column: string; sql: string }[] = [
     table: 'admin_passkeys',
     column: 'label',
     sql: `ALTER TABLE admin_passkeys ADD COLUMN label TEXT`,
+  },
+  {
+    table: 'attachments',
+    column: 'thumb_key',
+    sql: `ALTER TABLE attachments ADD COLUMN thumb_key TEXT`,
   },
 ];
 
@@ -897,6 +907,13 @@ export interface AttachmentRow {
   content_type: string;
   size: number;
   created_at: string;
+  /** A PDF's first-page JPEG, stored beside it; null for an image. */
+  thumb_key: string | null;
+}
+
+/** Every stored object a row names: the file itself and, for a PDF, its thumbnail. */
+export function storedKeys(row: Pick<AttachmentRow, 'key' | 'thumb_key'>): string[] {
+  return row.thumb_key ? [row.key, row.thumb_key] : [row.key];
 }
 
 const ATTACH = {
@@ -907,10 +924,14 @@ const ATTACH = {
   `,
   countForOwner: `SELECT COUNT(*) AS n FROM attachments WHERE owner_type = ? AND owner_id = ?`,
   byId: `SELECT * FROM attachments WHERE id = ?`,
-  byKey: `SELECT * FROM attachments WHERE key = ?`,
+  // A thumbnail is reached by its own key, and answers to the row it belongs to — so a program
+  // PDF's thumbnail is exactly as private as the PDF. No index on `thumb_key`, so this scans: a
+  // ward has a few hundred rows, and an index in `SCHEMA` would run before the migration that adds
+  // the column on an existing database.
+  byKey: `SELECT * FROM attachments WHERE key = ? OR thumb_key = ?`,
   insert: `
-    INSERT INTO attachments (owner_type, owner_id, key, filename, content_type, size)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO attachments (owner_type, owner_id, key, filename, content_type, size, thumb_key)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `,
   delete: `DELETE FROM attachments WHERE id = ?`,
   deleteForOwner: `DELETE FROM attachments WHERE owner_type = ? AND owner_id = ?`,
@@ -1007,12 +1028,17 @@ export async function stalePendingAttachments(limit: number): Promise<Attachment
   );
 }
 
-/** Every stored image's key, for deleting a whole ward's images (the many-ward host). */
+/** Every stored object's key, thumbnails included, for deleting a whole ward's images (the many-ward host). */
 export async function listAllAttachmentKeys(): Promise<string[]> {
-  return (await sql().all<{ key: string }>(`SELECT key FROM attachments`)).map((row) => row.key);
+  return (await sql().all<{ key: string; thumb_key: string | null }>(`SELECT key, thumb_key FROM attachments`)).flatMap(
+    storedKeys,
+  );
 }
 
-/** Bytes of every image the ward has stored, for the per-ward quota (`IMAGE_QUOTA_MB`). */
+/**
+ * Bytes of every image the ward has stored, for the per-ward quota (`IMAGE_QUOTA_MB`). A PDF's
+ * `size` is the PDF alone; its thumbnail, a few tens of KB, is not counted.
+ */
 export async function totalAttachmentBytes(): Promise<number> {
   const row = await sql().first<{ n: number }>(`SELECT COALESCE(SUM(size), 0) AS n FROM attachments`);
   return row?.n ?? 0;
@@ -1023,7 +1049,7 @@ export async function attachmentById(id: number): Promise<AttachmentRow | undefi
 }
 
 export async function attachmentByKey(key: string): Promise<AttachmentRow | undefined> {
-  return sql().first<AttachmentRow>(ATTACH.byKey, [key]);
+  return sql().first<AttachmentRow>(ATTACH.byKey, [key, key]);
 }
 
 export async function createAttachment(input: {
@@ -1033,6 +1059,7 @@ export async function createAttachment(input: {
   filename: string | null;
   contentType: string;
   size: number;
+  thumbKey?: string | null;
 }): Promise<number> {
   const info = await sql().run(ATTACH.insert, [
     input.ownerType,
@@ -1041,6 +1068,7 @@ export async function createAttachment(input: {
     input.filename,
     input.contentType,
     input.size,
+    input.thumbKey ?? null,
   ]);
   return info.lastRowId;
 }

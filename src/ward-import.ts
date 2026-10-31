@@ -28,7 +28,7 @@
  */
 import { checkVapidPair, generateVapidKeys, isVapidSubject, VAPID_KEYS_SETTING, type StoredVapid } from './identity.js';
 import { isPushEndpoint } from './push.js';
-import { contentTypeForKey, extensionFor, isValidKey, MAX_UPLOAD_BYTES } from './filestore.js';
+import { contentTypeForKey, extensionFor, isPdfBytes, isValidKey, maxBytesFor, PDF_TYPE } from './filestore.js';
 import { unsealBackupTables, type SealedState } from './seal.js';
 import {
   attachmentKeys,
@@ -275,34 +275,47 @@ export async function prepareImport(
   };
 }
 
-/** The type an image's first bytes say it is, for the four types an upload may be. */
+/** The type a file's first bytes say it is, for the five types an upload may be. */
 function sniff(bytes: Uint8Array): string | null {
   const at = (i: number, ...want: number[]) => want.every((b, j) => bytes[i + j] === b);
   if (at(0, 0xff, 0xd8, 0xff)) return 'image/jpeg';
   if (at(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return 'image/png';
   if (at(0, 0x47, 0x49, 0x46, 0x38)) return 'image/gif';
   if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return 'image/webp';
+  if (isPdfBytes(bytes)) return PDF_TYPE;
   return null;
 }
 
 /**
+ * The type the object stored under `key` should be, given the restored row that names it: the row's
+ * own type for its file, JPEG for a PDF's thumbnail.
+ */
+export function importedTypeFor(key: string, row: { key?: unknown; content_type: string; thumb_key?: unknown }): string {
+  return row.thumb_key === key && row.key !== key ? 'image/jpeg' : row.content_type.toLowerCase();
+}
+
+/**
  * Why one image from a backup may not be stored, or null when it may. `row` is the restored
- * attachment row with that key: only images the restored ward actually names are accepted, with
- * the limits and types of an ordinary upload, and bytes that really are that type.
+ * attachment row with that key (as its file or its thumbnail): only images the restored ward
+ * actually names are accepted, with the limits and types of an ordinary upload, and bytes that
+ * really are that type.
  */
 export function checkImportedImage(
   key: string,
   bytes: Uint8Array,
-  row: { content_type: string } | undefined,
+  row: { key?: unknown; content_type: string; thumb_key?: unknown } | undefined,
 ): string | null {
   if (!isValidKey(key)) return 'not an image name this app makes';
   if (!row) return 'no image of that name in the restored ward';
-  const type = row.content_type.toLowerCase();
+  const type = importedTypeFor(key, row);
   const extension = extensionFor(type);
-  if (!extension || contentTypeForKey(key) !== type) return `not an allowed image type (${row.content_type})`;
+  if (!extension || contentTypeForKey(key) !== type) return `not an allowed image type (${type})`;
   if (bytes.byteLength === 0) return 'empty';
-  if (bytes.byteLength > MAX_UPLOAD_BYTES) return `over ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB`;
-  if (sniff(bytes) !== type) return `the file is not a ${type.slice('image/'.length).toUpperCase()} image`;
+  const max = maxBytesFor(type);
+  if (bytes.byteLength > max) return `over ${Math.round(max / (1024 * 1024))} MB`;
+  if (sniff(bytes) !== type) {
+    return type === PDF_TYPE ? 'the file is not a PDF' : `the file is not a ${type.slice('image/'.length).toUpperCase()} image`;
+  }
   return null;
 }
 

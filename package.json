@@ -17,7 +17,7 @@
   "packageManager": "npm@12.0.2",
   "scripts": {
     "icons": "node scripts/generate-icons.mjs",
-    "vendor": "node scripts/vendor-pdfmake.mjs && node scripts/vendor-bundles.mjs",
+    "vendor": "node scripts/vendor-pdfmake.mjs && node scripts/vendor-pdfjs.mjs && node scripts/vendor-bundles.mjs",
     "assets": "npm run icons && npm run vendor",
     "build": "npm run assets && tsc",
     "start": "node dist/server.js",
@@ -58,6 +58,7 @@
     "@types/node": "^22.20.5",
     "@types/qrcode": "^1.5.5",
     "esbuild": "^0.28.2",
+    "pdfjs-dist": "^6.4.299",
     "pdfmake": "^0.3.13",
     "prosemirror-markdown": "^1.13.8",
     "tsx": "^4.23.15",

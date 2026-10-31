@@ -63,8 +63,14 @@
       .then(function (json) {
         var backup = JSON.parse(json);
         var rows = (backup.tables && backup.tables.attachments) || [];
-        var wanted = rows.filter(function (r) { return r && typeof r.key === 'string'; });
-        var expected = wanted.reduce(function (sum, r) { return sum + (Number(r.size) || 0); }, 0);
+        var named = rows.filter(function (r) { return r && typeof r.key === 'string'; });
+        var expected = named.reduce(function (sum, r) { return sum + (Number(r.size) || 0); }, 0);
+        // Each row's file and, for a PDF, the thumbnail stored beside it (not counted in `size`).
+        var wanted = [];
+        named.forEach(function (r) {
+          wanted.push({ key: r.key });
+          if (typeof r.thumb_key === 'string') wanted.push({ key: r.thumb_key });
+        });
         var images = [];
         var missing = [];
         var bytes = 0;

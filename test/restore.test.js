@@ -14,7 +14,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { columnsOf, planRestore, restoreWrites } from '../dist/restore.js';
+import { attachmentKeys, columnsOf, planRestore, restoreWrites } from '../dist/restore.js';
 import { ADMIN_PASSWORD, createClient, startServer, testPort, unlockMember } from './helpers/harness.js';
 import { checkImportedImage, prepareImport } from '../dist/ward-import.js';
 import { checkVapidPair, generateVapidKeys, loadStoredIdentity } from '../dist/identity.js';
@@ -331,6 +331,21 @@ describe('the host\'s import rules', () => {
     assert.match(checkImportedImage(KEY, new Uint8Array(0), row), /empty/);
     assert.match(checkImportedImage(KEY, new Uint8Array(3 * 1024 * 1024 + 1), row), /over 3 MB/);
     assert.match(checkImportedImage(KEY, new Uint8Array(PNG), { content_type: 'image/jpeg' }), /not an allowed image type/);
+  });
+
+  test("an imported PDF is checked as a PDF, and its thumbnail as the row's JPEG", () => {
+    const pdfKey = 'dddddddddddddddddddddddddddddddd.pdf';
+    const thumbKey = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.jpg';
+    const row = { key: pdfKey, content_type: 'application/pdf', thumb_key: thumbKey };
+    const pdf = new Uint8Array(Buffer.from('%PDF-1.7\n%%EOF\n'));
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0]);
+    assert.equal(checkImportedImage(pdfKey, pdf, row), null);
+    assert.equal(checkImportedImage(thumbKey, jpeg, row), null, 'the thumbnail is a JPEG, whatever the row says');
+    assert.match(checkImportedImage(thumbKey, pdf, row), /not a JPEG/);
+    assert.match(checkImportedImage(pdfKey, new Uint8Array(Buffer.from('<html>')), row), /not a PDF/);
+    assert.match(checkImportedImage(pdfKey, new Uint8Array(5 * 1024 * 1024 + 1), row), /over 5 MB/);
+    const plan = { tables: [{ name: 'attachments', columns: [], inBackup: true, rows: [{ columns: Object.keys(row), values: Object.values(row) }] }] };
+    assert.deepEqual(attachmentKeys(plan), [pdfKey, thumbKey], 'both are images the import asks for');
   });
 });
 

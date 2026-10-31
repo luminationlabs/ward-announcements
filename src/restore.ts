@@ -331,9 +331,9 @@ export function withRows(plan: RestorePlan, name: string, rows: Record<string, R
   };
 }
 
-/** Every image key the plan's `attachments` rows name. */
+/** Every image key the plan's `attachments` rows name, a PDF's thumbnail included. */
 export function attachmentKeys(plan: RestorePlan): string[] {
   return rowsOf(plan, 'attachments')
-    .map((r) => r.key)
+    .flatMap((r) => [r.key, r.thumb_key])
     .filter((k): k is string => typeof k === 'string');
 }

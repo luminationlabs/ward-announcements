@@ -19,6 +19,11 @@ const shareSend = document.getElementById('share-send');
 const shareCopy = document.getElementById('share-copy');
 const lightbox = document.getElementById('lightbox');
 const lightboxImg = document.getElementById('lightbox-img');
+const pdfViewer = document.getElementById('pdf-viewer');
+const pdfPages = document.getElementById('pdf-viewer-pages');
+const pdfStatus = document.getElementById('pdf-viewer-status');
+const pdfOriginal = document.getElementById('pdf-viewer-original');
+const pdfShare = document.getElementById('pdf-viewer-share');
 const programContent = document.getElementById('program-content');
 const resourcesList = document.getElementById('resources-list');
 const resourcesTab = document.getElementById('tab-resources');
@@ -185,7 +190,7 @@ async function renderAnnouncements() {
       body.innerHTML = a.html;
       card.appendChild(body);
 
-      if (a.images && a.images.length) card.appendChild(thumbnailRow(a.images));
+      if (a.images && a.images.length) card.appendChild(thumbnailRow(a.images, { name: a.title, saveable: true }));
 
       next.appendChild(card);
     }
@@ -506,7 +511,8 @@ async function renderProgram() {
     body.innerHTML = data.html;
     article.appendChild(body);
 
-    if (data.images && data.images.length) article.appendChild(thumbnailRow(data.images));
+    // Not saveable: a program names people and is meant to go when its window closes.
+    if (data.images && data.images.length) article.appendChild(thumbnailRow(data.images, { saveable: false }));
 
     next.appendChild(article);
     swapIfChanged(programContent, next);
@@ -572,7 +578,7 @@ async function renderResources() {
       body.innerHTML = p.html; // server-rendered, sanitized Markdown
       section.appendChild(body);
 
-      if (p.images && p.images.length) section.appendChild(thumbnailRow(p.images));
+      if (p.images && p.images.length) section.appendChild(thumbnailRow(p.images, { name: p.title, saveable: true }));
       next.appendChild(section);
     }
     if (!pages.length) next.innerHTML = '<p class="muted">Nothing here yet.</p>';
@@ -605,11 +611,36 @@ function setResourcesTabVisible(visible) {
 
 // A row of thumbnails under an announcement's text. Each is a <button>, not a bare <img>: it opens
 // the full-size view, so it has to be reachable by keyboard and announce itself as something to
-// press.
-function thumbnailRow(images) {
+// press. A PDF's thumbnail (its first page) is a link instead, opened in the app's own viewer
+// (`openPdfViewer`); the href stays, so a modified click on a computer still opens the file itself.
+function thumbnailRow(images, pdfOptions = {}) {
   const row = document.createElement('div');
   row.className = 'thumbs';
   for (const image of images) {
+    if (image.pdf) {
+      const link = document.createElement('a');
+      link.className = 'thumb pdf-thumb';
+      link.href = image.pdf;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.setAttribute('aria-label', 'Open PDF');
+      const img = document.createElement('img');
+      img.src = image.url;
+      img.alt = '';
+      img.loading = 'lazy';
+      const badge = document.createElement('span');
+      badge.className = 'pdf-badge';
+      badge.setAttribute('aria-hidden', 'true');
+      badge.textContent = 'PDF';
+      link.append(img, badge);
+      link.addEventListener('click', (e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button) return;
+        e.preventDefault();
+        openPdfViewer(image.pdf, pdfOptions);
+      });
+      row.appendChild(link);
+      continue;
+    }
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'thumb';
@@ -639,6 +670,164 @@ function closeLightbox() {
   document.body.style.overflow = '';
   // Drop the source so a large image isn't held decoded in memory behind a hidden element.
   lightboxImg.removeAttribute('src');
+}
+
+// --- PDF viewer -------------------------------------------------------------
+//
+// A home-screen app on iOS opens a same-site PDF link in place of the app itself: no toolbar, no
+// Done, no back swipe, and relaunching the icon brings the PDF back (seen on iOS 27, and reported
+// for years). So the app draws the pages itself, with pdf.js (loaded only now; the service worker
+// keeps it after) into an overlay with its own Done button. Each page is drawn to a canvas and
+// handed to an <img> as a JPEG, and the canvas freed: a phone holds images far more cheaply than a
+// stack of page-sized canvases, so a long PDF does not run Safari out of memory.
+
+/** The open document, so Done (or opening another) can stop it mid-draw. */
+let pdfSession = null;
+
+/**
+ * The most pixels one page is drawn with. Width is capped already, but a tall page (a banner, a
+ * scanned strip) could pass the canvas limit WebKit enforces on a phone, and then draws nothing.
+ */
+const PDF_PAGE_MAX_PIXELS = 12_000_000;
+
+/**
+ * The name a saved copy gets: the announcement's or page's title, never the clerk's own filename
+ * (which is not published; see `publicImages` in src/app.ts). Only what a file name may hold.
+ */
+function pdfFileName(title) {
+  const clean = String(title || '')
+    .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s.]+|[\s.]+$/g, ''); // a leading dot hides the file in Files; a trailing one doubles up
+  // By code point, so an emoji is never cut in half.
+  return (Array.from(clean).slice(0, 80).join('').trim() || 'Document') + '.pdf';
+}
+
+/**
+ * Open a PDF in the viewer. `saveable` offers "Save or Share": the system share sheet (Save to
+ * Files, Print, Books, Mail), the one way a home-screen app on iOS can hand a file to the phone.
+ * Offered only once the bytes are here, because iOS lets `share()` run only straight from the tap.
+ */
+async function openPdfViewer(url, { name = '', saveable = false } = {}) {
+  if (!pdfViewer) {
+    location.href = url;
+    return;
+  }
+  closePdfViewer();
+  // Focus goes back where it was on Done, so a keyboard or VoiceOver user keeps their place.
+  const session = { task: null, urls: [], closed: false, opener: document.activeElement };
+  pdfSession = session;
+  pdfPages.replaceChildren();
+  pdfStatus.textContent = 'Opening…';
+  pdfOriginal.href = url;
+  pdfOriginal.hidden = isStandalone; // it would strand the member exactly as the plain link did
+  if (pdfShare) pdfShare.hidden = true;
+  pdfViewer.hidden = false;
+  document.body.style.overflow = 'hidden';
+  document.getElementById('pdf-viewer-close')?.focus();
+  try {
+    const pdfjs = await import('/vendor/pdfjs/pdf.min.js');
+    // Done during that import (a megabyte, the first time, on a phone's data): stop before the
+    // document is ever asked for, since there is no task yet for Done to have destroyed.
+    if (session.closed) return;
+    pdfjs.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.js';
+    // The same resources the dashboard gives it (see scripts/vendor-pdfjs.mjs), absolute because
+    // the worker fetches them. The whole file at once: the image route does not serve ranges.
+    const base = location.origin + '/vendor/pdfjs/';
+    session.task = pdfjs.getDocument({
+      url: new URL(url, location.href).href,
+      disableRange: true,
+      disableStream: true,
+      wasmUrl: base + 'wasm/',
+      cMapUrl: base + 'cmaps/',
+      cMapPacked: true,
+      standardFontDataUrl: base + 'standard_fonts/',
+      iccUrl: base + 'iccs/',
+    });
+    const doc = await session.task.promise;
+    if (saveable && pdfShare && navigator.canShare) {
+      // The bytes pdf.js already downloaded, so the tap needs no second fetch.
+      const file = new File([await doc.getData()], pdfFileName(name), { type: 'application/pdf' });
+      if (!session.closed && navigator.canShare({ files: [file] })) {
+        session.file = file;
+        pdfShare.hidden = false;
+      }
+    }
+    const width = Math.min(pdfPages.clientWidth || window.innerWidth, 900);
+    // Sharp on the screen and still readable when pinched a little, without a page costing more
+    // than a few MB to draw.
+    const density = Math.min(window.devicePixelRatio || 1, 2) * 1.25;
+    for (let n = 1; n <= doc.numPages; n++) {
+      if (session.closed) return;
+      if (doc.numPages > 1) pdfStatus.textContent = `Page ${n} of ${doc.numPages}…`;
+      const page = await doc.getPage(n);
+      const unscaled = page.getViewport({ scale: 1 });
+      let scale = (width / unscaled.width) * density;
+      const pixels = unscaled.width * unscaled.height * scale * scale;
+      if (pixels > PDF_PAGE_MAX_PIXELS) scale *= Math.sqrt(PDF_PAGE_MAX_PIXELS / pixels);
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.floor(viewport.width));
+      canvas.height = Math.max(1, Math.floor(viewport.height));
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff'; // a page is transparent where nothing is drawn
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+      canvas.width = canvas.height = 0;
+      page.cleanup();
+      if (session.closed) return;
+      if (!blob) throw new Error('page ' + n + ' could not be drawn');
+      const src = URL.createObjectURL(blob);
+      session.urls.push(src);
+      const img = document.createElement('img');
+      img.className = 'pdf-viewer-page';
+      img.src = src;
+      img.alt = `Page ${n}`;
+      pdfPages.appendChild(img);
+      if (n === 1) pdfStatus.textContent = doc.numPages > 1 ? `Page 1 of ${doc.numPages}…` : '';
+    }
+    pdfStatus.textContent = doc.numPages > 1 ? `${doc.numPages} pages` : '';
+  } catch (err) {
+    if (session.closed) return;
+    console.error('PDF viewer', err);
+    const shown = pdfPages.childElementCount;
+    pdfStatus.textContent = shown
+      ? `Only ${shown} page${shown === 1 ? '' : 's'} could be shown.`
+      : navigator.onLine === false
+        ? 'This PDF needs a connection to open.'
+        : 'Could not open this PDF.';
+  }
+}
+
+function closePdfViewer() {
+  const session = pdfSession;
+  if (!session) return;
+  pdfSession = null;
+  session.closed = true;
+  session.task?.destroy().catch(() => {});
+  pdfPages.replaceChildren();
+  for (const src of session.urls) URL.revokeObjectURL(src);
+  pdfViewer.hidden = true;
+  if (pdfShare) pdfShare.hidden = true;
+  document.body.style.overflow = '';
+  if (session.opener && session.opener.isConnected) session.opener.focus?.();
+}
+
+function initPdfViewer() {
+  if (!pdfViewer) return;
+  document.getElementById('pdf-viewer-close')?.addEventListener('click', closePdfViewer);
+  pdfShare?.addEventListener('click', () => {
+    const file = pdfSession?.file;
+    if (!file) return;
+    // Cancelling the sheet rejects with AbortError: nothing to say about that.
+    navigator.share({ files: [file] }).catch((err) => {
+      if (err?.name !== 'AbortError') console.error('PDF share', err);
+    });
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closePdfViewer();
+  });
 }
 
 function initLightbox() {
@@ -1147,6 +1336,7 @@ function controllerHasOtherBuild() {
 async function main() {
   setupDismissibleCards();
   initLightbox(); // before the first render, so the earliest thumbnail tap already works
+  initPdfViewer();
   initTabs();
   initShare(); // before the service-worker early-returns below: sharing works without push
   initAppearance();

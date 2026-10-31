@@ -310,8 +310,11 @@ export function nextProgramDate(
  * program is finished (stopping mid-program would leave a row whose images are already gone), so the
  * program cap has to be low enough that the last program's images still fit: three programs with an
  * image each (12) plus a fourth with the per-owner maximum of ten (13) is 25 subrequests, which
- * leaves the rest of the tick comfortable inside the fifty. The next run takes the next batch — a
- * year of backlog still clears in a fortnight of daily sweeps.
+ * leaves the rest of the tick comfortable inside the fifty. A PDF is two objects (it and its
+ * thumbnail): the cap is checked between programs, so three with nine objects between them (18)
+ * and a fourth with ten PDFs (23) is 41 at the very worst — still inside, and a program with ten
+ * PDFs is not a thing a ward makes. The pending sweep skips a day this runs (see below). The next run takes the next
+ * batch — a year of backlog still clears in a fortnight of daily sweeps.
  */
 export const MAX_PROGRAMS_PER_PURGE = 4;
 export const MAX_OBJECT_DELETES_PER_PURGE = 10;
@@ -413,9 +416,11 @@ export async function maybePurgeOldPrograms(
     // budget binds, a full batch clears the day's marker instead, so the next tick, a minute later,
     // takes the next batch.
     let backlog = false;
+    let purgedAny = false;
     for (let rounds = 0; ; rounds++) {
       const purged = await purgeOldPrograms(files, log, now, tz);
       if (purged.length === 0) break;
+      purgedAny = true;
       // A batch that took everything is the usual case; only a cap leaves programs behind.
       if ((await programsBefore(await retentionCutoff(now, tz), 1)).length === 0) break;
       if (!untilDone || rounds >= 1000) {
@@ -423,8 +428,10 @@ export async function maybePurgeOldPrograms(
         break;
       }
     }
-    // Images uploaded to a New announcement, page or program that was never saved.
-    await purgeStalePendingAttachments(files, log);
+    // Images uploaded to a New announcement, page or program that was never saved. Not on a day
+    // the purge above deleted anything: together they could pass the fifty subrequests (a PDF is two
+    // objects), and the sweep loses nothing by waiting a day for files already a day old.
+    if (!purgedAny) await purgeStalePendingAttachments(files, log);
     if (backlog) await setSetting('program_purge_last_run', '');
   } catch (err) {
     log.error(err, 'purging expired programs failed — clearing the daily marker so it retries');

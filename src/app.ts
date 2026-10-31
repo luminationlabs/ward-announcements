@@ -86,15 +86,18 @@ import {
 import {
   contentTypeForKey,
   extensionFor,
+  isPdfBytes,
   isValidKey,
   newAttachmentKey,
+  maxBytesFor,
   MAX_ATTACHMENTS_PER_OWNER,
-  MAX_UPLOAD_BYTES,
+  MAX_PDF_BYTES,
+  PDF_TYPE,
   type FileStore,
 } from './filestore.js';
 import { renderMarkdown, renderProgramMarkdown } from './markdown.js';
 import { qrPng, scaleFor } from './qr-png.js';
-import { purgeAttachments } from './attachments.js';
+import { deleteStoredObjects, purgeAttachments } from './attachments.js';
 import { stripImageMetadata } from './image-meta.js';
 import { isPushEndpoint, sendToAll } from './push.js';
 
@@ -166,6 +169,7 @@ import {
   announcementForm,
   pageForm,
   programForm,
+  type EditorAttachment,
   gatePage,
   subscribersPage,
   DAY_NAMES,
@@ -173,6 +177,8 @@ import {
 } from './views.js';
 import {
   hasAccess,
+  fileLinkToken,
+  fileLinkValid,
   grantAccess,
   redeemCredential,
   newAccessCode,
@@ -253,11 +259,17 @@ const GETTING_STARTED_DISMISSED = 'getting_started_dismissed';
 /**
  * Whether this request may load an image that is not an announcement's or a page's: anyone signed in
  * to the dashboard may (they see the program any day, and the images on forms they have not saved);
- * a member only a program's, and only inside that program's window on its own date.
+ * a member only a program's, and only inside that program's window on its own date. A program's PDF
+ * link carries a token (`?t=`, see `fileLinkToken`) that stands in for the member cookie — for that
+ * one file, and still only inside the window.
  */
-async function mayViewPrivateImage(c: Context, row: AttachmentRow): Promise<boolean> {
+async function mayViewPrivateImage(c: Context, key: string, row: AttachmentRow): Promise<boolean> {
   if (await sessionOf(c)) return true;
-  if (row.owner_type !== PROGRAM_OWNER || !(await hasAccess(c))) return false;
+  // The dashboard's own PDF links carry a token of their own (`editorAttachments`), for the same
+  // reason the program's do.
+  if (await fileLinkValid(key, c.req.query('t'), 'dashboard')) return true;
+  if (row.owner_type !== PROGRAM_OWNER) return false;
+  if (!(await hasAccess(c)) && !(await fileLinkValid(key, c.req.query('t')))) return false;
   const now = new Date();
   if (!programWindowOpen(now, await getProgramSettings())) return false;
   return (await getProgram(row.owner_id))?.program_date === localDate(now);
@@ -398,11 +410,11 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
   // --- Request size ---------------------------------------------------------
   //
   // Nothing an admin form sends comes near these: a body is at most 50,000 characters, an image
-  // 3 MB. Without them a request is read whole into memory, however large, before any route decides
+  // 3 MB, a PDF 5 MB with its thumbnail. Without them a request is read whole into memory, however large, before any route decides
   // it was too big — and on the many-ward host, memory every ward shares. The public API's bodies
   // are a code or a push subscription.
   const ADMIN_BODY_MAX = 1024 * 1024;
-  const UPLOAD_BODY_MAX = MAX_UPLOAD_BYTES + 1024 * 1024;
+  const UPLOAD_BODY_MAX = MAX_PDF_BYTES + MAX_THUMB_BYTES + 1024 * 1024;
   const tooLarge = (c: Context) => text(c, 'That is too large to send in one request.', 413);
   const adminBody = bodyLimit({ maxSize: ADMIN_BODY_MAX, onError: tooLarge });
   const uploadBody = bodyLimit({ maxSize: UPLOAD_BODY_MAX, onError: tooLarge });
@@ -593,14 +605,7 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
         // Rendered by the client as a thumbnail row under the body (see public/app.js). Sent as
         // data rather than folded into `html` so the markup stays the sanitized Markdown output
         // and nothing else.
-        images: (images.get(a.id) ?? []).map((row) => ({
-          url: `/images/${row.key}`,
-          // Not the stored filename. What a clerk names a file on their own machine is theirs —
-          // "bishop-storey-funeral-final2.jpg", a member's name, a path fragment — and in an `alt`
-          // attribute it would go out to every reader as text nobody thought of as published. The
-          // filename stays visible admin-side, where it is genuinely useful.
-          alt: '',
-        })),
+        images: publicImages(images.get(a.id) ?? []),
       })),
     });
   });
@@ -620,8 +625,7 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
         id: p.id,
         title: p.title,
         html: renderMarkdown(p.body),
-        // No filename, as on the announcements route.
-        images: (images.get(p.id) ?? []).map((row) => ({ url: `/images/${row.key}`, alt: '' })),
+        images: publicImages(images.get(p.id) ?? []),
       })),
     });
   });
@@ -658,14 +662,22 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
       return json(c, { open: false, message: closedProgramMessage(settings, windowOpen) });
     }
     const images = await listAttachments(PROGRAM_OWNER, program.id);
+    // When this copy stops being one to show: the service worker's offline copy is refused after it.
+    const closesAt = programWindowClosesAt(now, settings);
     return json(c, {
       open: true,
       date: program.program_date,
-      // When this copy stops being one to show: the service worker's offline copy is refused after it.
-      closesAt: programWindowClosesAt(now, settings),
+      closesAt,
       html: renderProgramMarkdown(program.body_md),
-      // No filename here either — see the announcements route.
-      images: images.map((row) => ({ url: `/images/${row.key}`, alt: '' })),
+      // A PDF link can be opened where the member cookie is not (the viewer's "Open original" in
+      // another tab); it carries a token for that one file instead, good until the window closes.
+      images: await Promise.all(
+        publicImages(images).map(async (image) => {
+          if (!image.pdf || closesAt === null) return image;
+          const key = image.pdf.slice('/images/'.length);
+          return { ...image, pdf: `${image.pdf}?t=${encodeURIComponent(await fileLinkToken(key, closesAt))}` };
+        }),
+      ),
     });
   });
 
@@ -686,7 +698,7 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
     const row = await attachmentByKey(key);
     if (!row) return text(c, 'Not found', 404);
     const open = row.owner_type === 'announcement' || row.owner_type === PAGE_OWNER;
-    if (!open && !(await mayViewPrivateImage(c, row))) return text(c, 'Not found', 404);
+    if (!open && !(await mayViewPrivateImage(c, key, row))) return text(c, 'Not found', 404);
     // Served as what the key's extension says, never as what the store holds: a tampered backup
     // restored into the store could otherwise make this origin serve HTML from a `.png` key, and a
     // key with an extension this app does not make is not served at all.
@@ -696,14 +708,16 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
     if (!file) return text(c, 'Not found', 404);
     c.header('Cache-Control', open ? 'public, max-age=31536000, immutable' : 'private, no-store');
     // `c.body` takes a stream (R2) or an ArrayBuffer (the filesystem store); a Uint8Array's own
-    // buffer may be a slice of a larger allocation, so hand over exactly this view's bytes.
+    // buffer may be a slice of a larger allocation, so hand over exactly this view's bytes — copied
+    // only when it is a slice, since a 5 MB PDF decoded from D1 is its own buffer already, and the
+    // copy is CPU a free-plan Worker does not have to spare.
+    const view = file.body;
     const body: ArrayBuffer | ReadableStream =
-      file.body instanceof Uint8Array
-        ? (file.body.buffer.slice(
-            file.body.byteOffset,
-            file.body.byteOffset + file.body.byteLength,
-          ) as ArrayBuffer)
-        : file.body;
+      view instanceof Uint8Array
+        ? view.byteOffset === 0 && view.byteLength === view.buffer.byteLength
+          ? (view.buffer as ArrayBuffer)
+          : (view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer)
+        : view;
     return c.body(body, 200, { 'content-type': contentType });
   });
 
@@ -1145,8 +1159,14 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
   async function liveRichPreview(): Promise<string> {
     const list = await listPublicAnnouncements();
     const images = groupByOwner(await listAttachmentsForOwners('announcement', list.map((a) => a.id)));
+    // Images only: the copy and the PDF are the week's text with its flyers, and an attached PDF
+    // is something to open, not a picture to paste into an email.
     return richPreviewHtml(
-      list.map((a) => ({ title: a.title, body: a.body, images: images.get(a.id) ?? [] })),
+      list.map((a) => ({
+        title: a.title,
+        body: a.body,
+        images: (images.get(a.id) ?? []).filter((row) => row.content_type !== PDF_TYPE),
+      })),
     );
   }
 
@@ -1480,7 +1500,7 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
           draft: input,
           error: problem,
           role: roleOf(c),
-          pendingAttachments: await pendingAttachmentsByIds(pendingImages),
+          pendingAttachments: await editorAttachments(await pendingAttachmentsByIds(pendingImages)),
         }),
         400,
       );
@@ -1511,7 +1531,7 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
         mode: 'edit',
         role: roleOf(c),
         announcement,
-        attachments: await listAttachments('announcement', id),
+        attachments: await editorAttachments(await listAttachments('announcement', id)),
         maxAttachments: MAX_ATTACHMENTS_PER_OWNER,
       }),
     );
@@ -1530,7 +1550,7 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
           mode: 'edit',
           announcement,
           draft: input,
-          attachments: await listAttachments('announcement', id),
+          attachments: await editorAttachments(await listAttachments('announcement', id)),
           maxAttachments: MAX_ATTACHMENTS_PER_OWNER,
           error: problem,
           role: roleOf(c),
@@ -1572,7 +1592,7 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
           draft: input,
           error: problem,
           role: roleOf(c),
-          pendingAttachments: await pendingAttachmentsByIds(pendingImages),
+          pendingAttachments: await editorAttachments(await pendingAttachmentsByIds(pendingImages)),
         }),
         400,
       );
@@ -1603,7 +1623,7 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
         mode: 'edit',
         role: roleOf(c),
         page,
-        attachments: await listAttachments(PAGE_OWNER, id),
+        attachments: await editorAttachments(await listAttachments(PAGE_OWNER, id)),
         maxAttachments: MAX_ATTACHMENTS_PER_OWNER,
         flash: c.req.query('msg') ?? undefined,
       }),
@@ -1623,7 +1643,7 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
           mode: 'edit',
           page,
           draft: input,
-          attachments: await listAttachments(PAGE_OWNER, id),
+          attachments: await editorAttachments(await listAttachments(PAGE_OWNER, id)),
           maxAttachments: MAX_ATTACHMENTS_PER_OWNER,
           error: problem,
           role: roleOf(c),
@@ -1680,7 +1700,7 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
     const body = (await readBody(c)) as ProgramBody & Record<string, unknown>;
     const input = parseProgramBody(body);
     const pendingImages = pendingIds(body);
-    const pendingAttachments = await pendingAttachmentsByIds(pendingImages);
+    const pendingAttachments = await editorAttachments(await pendingAttachmentsByIds(pendingImages));
     const problem = programProblem(input);
     if (problem) {
       return html(
@@ -1778,7 +1798,7 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
         role: roleOf(c),
         program,
         settings: await getProgramSettings(),
-        attachments: await listAttachments(PROGRAM_OWNER, program.id),
+        attachments: await editorAttachments(await listAttachments(PROGRAM_OWNER, program.id)),
         maxAttachments: MAX_ATTACHMENTS_PER_OWNER,
         flash: c.req.query('msg'),
       }),
@@ -1799,7 +1819,11 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
       programPreviewHtml({
         date: program.program_date,
         body: renderProgramMarkdown(program.body_md),
-        images: images.map((row) => ({ url: `/images/${row.key}` })),
+        images: await Promise.all(
+          publicImages(images).map(async (image) =>
+            image.pdf ? { ...image, pdf: await dashboardPdfHref({ owner_type: PROGRAM_OWNER, key: image.pdf.slice('/images/'.length) }) } : image,
+          ),
+        ),
       }),
     );
   });
@@ -1825,7 +1849,7 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
           defaultDate: input.date,
           draftBody: input.body,
           settings,
-          attachments: await listAttachments(PROGRAM_OWNER, program.id),
+          attachments: await editorAttachments(await listAttachments(PROGRAM_OWNER, program.id)),
           maxAttachments: MAX_ATTACHMENTS_PER_OWNER,
           error: problem,
         }),
@@ -1906,20 +1930,37 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
     const contentType = (file.type || '').split(';')[0].trim().toLowerCase();
     const extension = extensionFor(contentType);
     if (!extension) {
-      return json(c, { error: 'Images must be JPEG, PNG, WebP or GIF.' }, 415);
+      return json(c, { error: 'Attachments must be a JPEG, PNG, WebP or GIF image, or a PDF.' }, 415);
     }
+    const isPdf = contentType === PDF_TYPE;
 
     const uploaded = new Uint8Array(await file.arrayBuffer());
     // Measured after reading, not from the declared `size`: the number a client sends is a claim,
     // and the byte count is the fact.
-    if (uploaded.byteLength > MAX_UPLOAD_BYTES) {
+    const maxBytes = maxBytesFor(contentType);
+    if (uploaded.byteLength > maxBytes) {
       return json(
         c,
-        { error: `Images must be under ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB.` },
+        { error: `${isPdf ? 'PDFs' : 'Images'} must be under ${Math.round(maxBytes / (1024 * 1024))} MB.` },
         413,
       );
     }
     if (uploaded.byteLength === 0) return json(c, { error: 'That file was empty.' }, 400);
+    // A PDF is served as one, so it must start like one: the content type above is the browser's
+    // claim, and a page of HTML posted as `application/pdf` is not a PDF.
+    if (isPdf && !isPdfBytes(uploaded)) return json(c, { error: 'That file is not a PDF.' }, 415);
+
+    // A PDF's thumbnail: its first page as a JPEG, drawn by the dashboard (`thumb`). Required — it
+    // is what members see and tap — and checked as an image of its own.
+    let thumb: Uint8Array | null = null;
+    if (isPdf) {
+      const thumbFile = asUploadedFile(body['thumb']);
+      thumb = thumbFile ? new Uint8Array(await thumbFile.arrayBuffer()) : null;
+      if (!thumb || thumb.byteLength === 0 || thumb.byteLength > MAX_THUMB_BYTES || !isJpegBytes(thumb)) {
+        return json(c, { error: 'Could not make a preview of that PDF. Try another browser, or attach an image.' }, 400);
+      }
+      thumb = stripImageMetadata(thumb, 'image/jpeg');
+    }
     // What is stored, and what `size` records, is the image with its metadata gone (GPS, capture
     // time, device, thumbnail — the Orientation tag and the colour profile stay, see image-meta.ts).
     // The editor re-encodes most photos in the browser, which drops all that, but it sends the
@@ -1945,35 +1986,43 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
       const article = ownerType === 'announcement' ? 'An' : 'A';
       return json(
         c,
-        { error: `${article} ${noun} can have at most ${MAX_ATTACHMENTS_PER_OWNER} images.` },
+        { error: `${article} ${noun} can have at most ${MAX_ATTACHMENTS_PER_OWNER} images and PDFs.` },
         409,
       );
     }
 
     const key = newAttachmentKey(extension);
-    // Object first, row second: a row is what makes an image reachable, so if the write fails
-    // there is nothing pointing at a key that was never stored.
+    const thumbKey = thumb ? newAttachmentKey('jpg') : null;
+    // Objects first, row second: a row is what makes an image reachable, so if a write fails there
+    // is nothing pointing at a key that was never stored.
     await files.put(key, data, contentType);
+    if (thumb && thumbKey) {
+      try {
+        await files.put(thumbKey, thumb, 'image/jpeg');
+      } catch (err) {
+        // No row will ever name the PDF just stored, so nothing else would delete it.
+        await files.delete(key).catch(() => {});
+        throw err;
+      }
+    }
     const filename = typeof file.name === 'string' && file.name ? file.name.slice(0, 120) : null;
-    const id = await createAttachment({
-      ownerType: pending ? PENDING_OWNER : ownerType,
-      ownerId,
-      key,
-      filename,
-      contentType,
-      size: data.byteLength,
-    });
-    return json(c, { id, key, url: `/images/${key}`, alt: filename ?? '' }, 201);
+    const storedOwner = pending ? PENDING_OWNER : ownerType;
+    let id: number;
+    try {
+      id = await createAttachment({ ownerType: storedOwner, ownerId, key, filename, contentType, size: data.byteLength, thumbKey });
+    } catch (err) {
+      // No row names what was just stored, so nothing else would ever delete it.
+      for (const k of thumbKey ? [key, thumbKey] : [key]) await files.delete(k).catch(() => {});
+      throw err;
+    }
+    const pdf = thumbKey ? await dashboardPdfHref({ owner_type: storedOwner, key }) : undefined;
+    return json(c, { id, key, url: `/images/${thumbKey ?? key}`, alt: filename ?? '', ...(pdf ? { pdf } : {}) }, 201);
   });
 
   app.delete('/admin/attachments/:id', requireAuth, async (c) => {
     const row = await attachmentById(Number(c.req.param('id')));
     if (!row) return json(c, { error: 'Not found' }, 404);
-    try {
-      await files.delete(row.key);
-    } catch (err) {
-      log.error({ err, key: row.key }, 'could not delete a stored image');
-    }
+    await deleteStoredObjects(files, log, row);
     await deleteAttachment(row.id);
     return json(c, { ok: true });
   });
@@ -2156,6 +2205,54 @@ function originFrom(c: Context, trustForwarded: boolean): string {
   const proto = forwarded('x-forwarded-proto') || url.protocol.replace(':', '');
   const host = forwarded('x-forwarded-host') || url.host;
   return `${proto}://${host}`;
+}
+
+/**
+ * An owner's attachments as members get them: `url` is what to show, and a PDF adds `pdf`, what a
+ * tap opens.
+ *
+ * Never the stored filename. What a clerk names a file on their own machine is theirs —
+ * "bishop-storey-funeral-final2.jpg", a member's name, a path fragment — and in an `alt` attribute
+ * it would go out to every reader as text nobody thought of as published. The filename stays
+ * visible admin-side, where it is genuinely useful. A PDF has no label for the same reason: the
+ * announcement's own text says what it is, as it does for a flyer.
+ *
+ * Decided by the row's type, not by whether it has a thumbnail: a PDF row without one (only a
+ * hand-edited backup could make it) is left out rather than sent as an `<img>` of a PDF.
+ */
+function publicImages(rows: AttachmentRow[]): { url: string; alt: string; pdf?: string }[] {
+  return rows.flatMap((row) => {
+    if (row.content_type !== PDF_TYPE) return [{ url: `/images/${row.key}`, alt: '' }];
+    return row.thumb_key ? [{ url: `/images/${row.thumb_key}`, alt: '', pdf: `/images/${row.key}` }] : [];
+  });
+}
+
+/** How long a PDF link on a dashboard page keeps working: a working session, not a week. */
+const DASHBOARD_LINK_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * The link a dashboard page gives a PDF. An announcement's or a page's is public; anything else (a
+ * program's, or one on a New form nobody has saved) is served only to a session, which a new window
+ * in an iPhone home-screen app may not carry — so it gets a `dashboard` token (`fileLinkToken`).
+ */
+async function dashboardPdfHref(row: Pick<AttachmentRow, 'owner_type' | 'key'>): Promise<string> {
+  const href = `/images/${row.key}`;
+  if (row.owner_type === 'announcement' || row.owner_type === PAGE_OWNER) return href;
+  return `${href}?t=${encodeURIComponent(await fileLinkToken(row.key, Date.now() + DASHBOARD_LINK_MS, 'dashboard'))}`;
+}
+
+/** An editor page's attachments, each PDF with the link `dashboardPdfHref` gives it. */
+async function editorAttachments(rows: AttachmentRow[]): Promise<EditorAttachment[]> {
+  return Promise.all(
+    rows.map(async (row) => (row.thumb_key ? { ...row, pdfHref: await dashboardPdfHref(row) } : row)),
+  );
+}
+
+/** A PDF's thumbnail is a page drawn at phone size, a few tens of KB; this is generous. */
+const MAX_THUMB_BYTES = 512 * 1024;
+
+function isJpegBytes(bytes: Uint8Array): boolean {
+  return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
 }
 
 /** Index a flat attachment list by owner id, preserving the query's order within each owner. */

@@ -64,6 +64,23 @@ async function upload(ownerId, { bytes = PNG_1X1, type = 'image/png', name = 'fl
   return req('/admin/attachments', { as: 'admin', method: 'POST', formData: data });
 }
 
+// The server only checks a PDF's signature, but a real (if tiny) one keeps the test honest about
+// what a browser sends. The thumbnail is the JPEG the dashboard draws of its first page.
+const PDF = Buffer.from(
+  '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
+    '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n',
+);
+const THUMB = jpegWithMetadata({ orientation: 1 });
+
+function uploadPdf(ownerId, { bytes = PDF, thumb = THUMB, ownerType = 'announcement', type = 'application/pdf' } = {}) {
+  const data = new FormData();
+  data.append('owner_type', ownerType);
+  data.append('owner_id', String(ownerId));
+  data.append('file', new Blob([bytes], { type }), 'Stake Youth Conference.pdf');
+  if (thumb) data.append('thumb', new Blob([thumb], { type: 'image/jpeg' }), 'thumb.jpg');
+  return req('/admin/attachments', { as: 'admin', method: 'POST', formData: data });
+}
+
 // ---------------------------------------------------------------------------
 
 describe('uploading an image', () => {
@@ -316,6 +333,31 @@ describe('images added before the first save', () => {
     assert.ok(pageEdit.includes(forPage.url), 'the page has its image');
   });
 
+  test('a PDF added before the first save survives a rejected save and is claimed by the real one', async () => {
+    // Pending: no owner yet, so it is private to the dashboard and its link carries a token.
+    const pending = await (await uploadPdf('')).json();
+    const bare = pending.pdf.split('?')[0];
+    assert.match(pending.pdf, /\?t=/, "an unsaved PDF's dashboard link carries a token");
+    assert.equal((await req(bare)).status, 404, 'and without it nobody sees it');
+
+    const rejected = await adminPost('/admin/announcements', { title: '', body: 'x', pending_images: String(pending.id) });
+    assert.equal(rejected.status, 400);
+    const form = await rejected.text();
+    assert.ok(form.includes(`data-attachment="${pending.id}"`), 'the PDF is still on the form');
+    assert.ok(form.includes(`href="${bare}?t=`), 'linked with a token, as the upload was');
+
+    await adminPost('/admin/announcements', {
+      title: 'Saved with a PDF',
+      body: 'x',
+      published: '1',
+      pending_images: String(pending.id),
+    });
+    const { announcements } = await (await req('/api/announcements', { as: 'member' })).json();
+    const saved = announcements.find((a) => a.title === 'Saved with a PDF');
+    assert.deepEqual(saved?.images, [{ url: pending.url, alt: '', pdf: bare }], 'members get it like any PDF');
+    assert.equal((await req(bare)).status, 200, "and an announcement's PDF is public once saved");
+  });
+
   test('unsaved images are capped across the ward', async () => {
     let refused = null;
     for (let i = 0; i < 40 && !refused; i++) {
@@ -324,6 +366,121 @@ describe('images added before the first save', () => {
       else assert.equal(res.status, 201);
     }
     assert.match(refused?.error ?? '', /Too many unsaved images/);
+  });
+});
+
+describe('PDF attachments', () => {
+  let announcementId;
+  let added;
+
+  before(async () => {
+    await login();
+    await unlockMember(req, 'member');
+    announcementId = await newAnnouncement('Youth conference');
+    const res = await uploadPdf(announcementId);
+    assert.equal(res.status, 201);
+    added = await res.json();
+  });
+
+  test('a PDF is stored with its thumbnail, and each is served as what it is', async () => {
+    assert.match(added.key, /^[0-9a-f]{32}\.pdf$/);
+    assert.equal(added.pdf, `/images/${added.key}`);
+    assert.match(added.url, /^\/images\/[0-9a-f]{32}\.jpg$/, 'the url to show is the thumbnail');
+
+    const pdf = await req(added.pdf);
+    assert.equal(pdf.status, 200);
+    assert.equal(pdf.headers.get('content-type'), 'application/pdf');
+    assert.deepEqual(new Uint8Array(await pdf.arrayBuffer()), new Uint8Array(PDF), 'the PDF comes back untouched');
+
+    const thumb = await req(added.url);
+    assert.equal(thumb.status, 200);
+    assert.equal(thumb.headers.get('content-type'), 'image/jpeg');
+    assert.ok(!contains(new Uint8Array(await thumb.arrayBuffer()), 'Apple'), 'the thumbnail is stripped like any image');
+  });
+
+  test('members get the thumbnail to show and the PDF to open, and no filename', async () => {
+    const { announcements } = await (await req('/api/announcements', { as: 'member' })).json();
+    const mine = announcements.find((a) => a.id === announcementId);
+    assert.deepEqual(mine.images, [{ url: added.url, alt: '', pdf: added.pdf }]);
+  });
+
+  test('the copy and Save as PDF preview leave an attached PDF out', async () => {
+    const html = await (await req('/admin/announcements/preview/fragment', { as: 'admin' })).text();
+    assert.ok(html.includes('Youth conference'), 'the announcement is in the preview');
+    assert.ok(!html.includes(added.key) && !html.includes(added.url.slice('/images/'.length)), 'its PDF is not');
+  });
+
+  test('the backup names the thumbnail beside the PDF', async () => {
+    const { tables } = await (await req('/admin/backup.json', { as: 'admin' })).json();
+    const row = tables.attachments.find((a) => a.key === added.key);
+    assert.equal(row.content_type, 'application/pdf');
+    assert.equal(row.thumb_key, added.url.slice('/images/'.length));
+    assert.equal(row.size, PDF.length, 'the quota counts the PDF');
+  });
+
+  test('a PDF without a thumbnail, or with a thumbnail that is not a JPEG, is refused', async () => {
+    assert.equal((await uploadPdf(announcementId, { thumb: null })).status, 400);
+    assert.equal((await uploadPdf(announcementId, { thumb: PNG_1X1 })).status, 400);
+  });
+
+  test('a file that only claims to be a PDF is refused', async () => {
+    const res = await uploadPdf(announcementId, { bytes: Buffer.from('<html><script>alert(1)</script></html>') });
+    assert.equal(res.status, 415);
+  });
+
+  test('a PDF over 5 MB is refused, while one over the image limit is not', async () => {
+    const big = (n) => Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(n - 9, 0x20)]);
+    assert.equal((await uploadPdf(announcementId, { bytes: big(5 * 1024 * 1024 + 1) })).status, 413);
+    const fourMb = await uploadPdf(announcementId, { bytes: big(4 * 1024 * 1024) });
+    assert.equal(fourMb.status, 201);
+    const { id } = await fourMb.json();
+    await req(`/admin/attachments/${id}`, { as: 'admin', method: 'DELETE' });
+  });
+
+  test("a program's PDF and its thumbnail are as private as the program", async () => {
+    // A year out, so it is never today whatever day the suite runs.
+    const created = await adminPost('/admin/programs', {
+      program_date: `${new Date().getUTCFullYear() + 1}-04-06`,
+      body: 'Speaker ... Test',
+    });
+    const programId = Number(created.headers.get('location')?.match(/\/programs\/(\d+)/)?.[1]);
+    assert.ok(programId, 'the program was created');
+    const pdf = await (await uploadPdf(programId, { ownerType: 'program' })).json();
+    const bare = pdf.pdf.split('?')[0];
+    for (const url of [bare, pdf.url]) {
+      assert.equal((await req(url, { as: 'member' })).status, 404, `${url} is closed to a member out of its window`);
+      const admin = await req(url, { as: 'admin' });
+      assert.equal(admin.status, 200, `${url} is open to the dashboard`);
+      assert.equal(admin.headers.get('cache-control'), 'private, no-store');
+    }
+
+    // The dashboard's own link carries a token, since an iPhone home-screen app's new window may
+    // not carry the session: it opens the PDF with no cookie at all, any day, and nothing else.
+    const token = new URL(pdf.pdf, 'http://x').searchParams.get('t');
+    assert.ok(token, "a program PDF's dashboard link carries a token");
+    assert.equal((await req(pdf.pdf)).status, 200);
+    assert.equal((await req(`${pdf.url}?t=${token}`)).status, 404, 'not its thumbnail');
+    assert.equal((await req(`${bare}?t=${token.slice(0, -2)}xx`)).status, 404, 'not tampered');
+    const edit = await (await req(`/admin/programs/${programId}/edit`, { as: 'admin' })).text();
+    assert.ok(edit.includes(`href="${bare}?t=`), 'the edit page links it the same way');
+  });
+
+  test("an announcement PDF's dashboard link needs no token", async () => {
+    assert.equal(added.pdf, `/images/${added.key}`);
+  });
+
+  test('removing a PDF deletes its thumbnail too', async () => {
+    const second = await (await uploadPdf(announcementId)).json();
+    assert.equal((await req(`/admin/attachments/${second.id}`, { as: 'admin', method: 'DELETE' })).status, 200);
+    assert.equal((await req(second.pdf)).status, 404);
+    assert.equal((await req(second.url)).status, 404, 'the thumbnail went with it');
+    assert.equal((await req(added.url)).status, 200, 'the other PDF is untouched');
+  });
+
+  test('deleting the announcement takes its PDFs and thumbnails with it', async () => {
+    await adminPost(`/admin/announcements/${announcementId}/delete`);
+    assert.equal((await req(added.pdf)).status, 404);
+    assert.equal((await req(added.url)).status, 404);
   });
 });
 

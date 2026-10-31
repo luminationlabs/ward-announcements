@@ -8,4 +8,8 @@ What changes from one version to the next, newest first, in the style of [Keep a
 
 ## Unreleased
 
-First public release. Everything described in [README.md](./README.md), [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) and [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) is in it; `SCHEMA_VERSION` is 10.
+First public release. Everything described in [README.md](./README.md), [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) and [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) is in it; `SCHEMA_VERSION` is 11.
+
+### Added
+
+- **PDF attachments.** An announcement, a page or a program can carry a PDF (up to 5 MB) beside its images. The dashboard draws its first page as the thumbnail members see; tapping it opens the PDF in the app's own viewer, with a Done button (the phone's viewer would replace an iPhone home-screen app with the PDF, with no way back) and, for an announcement's or a page's, a share button to save or print it. A program's PDF link carries a token good until the program's window closes, and the dashboard's links to private PDFs one good for twelve hours, so a link opened outside the page that has the cookie still works. The announcements copy and Save as PDF leave PDFs out. **Schema:** `SCHEMA_VERSION` 11 adds `attachments.thumb_key`; a deployment on 10 migrates itself on the next visit, with nothing to do by hand.

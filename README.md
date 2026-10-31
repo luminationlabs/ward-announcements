@@ -43,7 +43,7 @@ You hand out the ward's link however you like: by text, by email, as a QR code o
 
 ![The dashboard](docs/images/dashboard.png)
 
-- You write announcements, programs and pages in an editor that works like a word processor. A new program can start from last week's or from a sample.
+- You write announcements, programs and pages in an editor that works like a word processor, and attach images or PDFs to any of them, such as a flyer from the stake. A new program can start from last week's or from a sample.
 - You set when sacrament meeting starts, and the program hours and the weekly notification follow from it.
 - The weekly notification goes out on its own, an hour before the meeting once you've set the meeting time, unless you pick another time. It skips weeks with nothing posted, and you can mark Sundays to skip, such as General Conference.
 - Each person who helps, such as a clerk or a member of the bishopric, signs in with their own passkey: Face ID, a fingerprint or their phone's screen lock. There's no shared password to pass around. You can give someone full access or only the ability to edit.
