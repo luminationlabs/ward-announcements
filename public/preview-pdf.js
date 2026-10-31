@@ -11,6 +11,12 @@
  * else falls through as its text. Images are fetched from `/images/:key` and re-encoded through a
  * canvas because pdfmake takes only JPEG and PNG, and an upload may be WebP or GIF.
  *
+ * An attached PDF is a thumbnail in the preview, linked with `data-pdf`. Here it is drawn from the
+ * PDF itself with pdf.js (loaded on first use, like pdfmake), sharp enough to print: a one-page PDF
+ * beside its announcement, like an image; a longer one the same way (its first page), or — when the
+ * preview's "Print multi-page PDFs in full at the end" box is ticked (`opts.pdfsAtEnd`) — as a note
+ * there and every page full-size after the rest of the document.
+ *
  * Emoji get a second font. pdfmake's Roboto has none and pdfmake has no font fallback, so a 👋
  * would print as a box; each emoji sequence becomes its own run set in Noto Emoji (monochrome,
  * OFL, a WOFF subset in public/vendor/noto-emoji/, ~570 KB, fetched with pdfmake). If that font
@@ -30,6 +36,13 @@
   var CONTENT_WIDTH = 612 - PAGE.margins[0] - PAGE.margins[2];
   var IMAGE_BOX = [CONTENT_WIDTH, 260]; // points; the most room an image is given on the page
   var IMAGE_PX_PER_PT = 4; // 288 dpi at the printed size, so a flyer's small text survives zooming in
+  var PAGE_CONTENT_HEIGHT = 792 - PAGE.margins[1] - PAGE.margins[3] - 12; // room under the page number
+  var FULL_PAGE_PX_PER_PT = 3; // 216 dpi for a whole attached page: prints cleanly, keeps the file sane
+  var MAX_PDF_PAGE_PIXELS = 12000000; // past this a phone's or laptop's canvas can refuse to draw
+  // Pages of one PDF printed in full at the end. Each is a few hundred KB held until pdfmake is done,
+  // and a 5 MB PDF can be a 150-page handbook: enough of that would take a phone's tab down.
+  var MAX_APPENDIX_PAGES = 30;
+  var PDFJS = '/vendor/pdfjs/';
   var HEADING_SIZE = { H1: 18, H2: 16, H3: 14, H4: 12, H5: 11, H6: 11 };
 
   function loadScript(src) {
@@ -212,11 +225,17 @@
     return out;
   }
 
-  /** Every <img> under a node, in document order — the preview wraps them in a paragraph. */
+  /**
+   * Every picture under a node, in document order — the preview wraps them in a paragraph: an
+   * `<img>` as `{ src }`, and an attached PDF (its thumbnail, in a link carrying `data-pdf`) as
+   * `{ pdf }`, so it is drawn from the PDF rather than the small thumbnail.
+   */
   function imagesUnder(node, out) {
     children(node).forEach(function (child) {
       if (!isElement(child)) return;
-      if (child.nodeName.toUpperCase() === 'IMG') out.push(attr(child, 'src'));
+      var name = child.nodeName.toUpperCase();
+      if (name === 'A' && attr(child, 'data-pdf')) out.push({ pdf: attr(child, 'data-pdf') });
+      else if (name === 'IMG') out.push({ src: attr(child, 'src') });
       else imagesUnder(child, out);
     });
     return out;
@@ -231,7 +250,8 @@
    * Walk block-level content into pdfmake content items. A run of phrasing children — the text of
    * a tight list item, say, which markdown-it emits without a <p> — becomes one text block, so a
    * bold word never splits its sentence into three. `images` collects the srcs to fetch; their
-   * placeholders are `{ image: <src> }` and get a data URL in `build()`.
+   * placeholders are `{ image: <src> }` and get a data URL in `build()`. An attached PDF's is
+   * `{ pdfAttachment: <url> }`, resolved there too.
    */
   function blocks(node, out, images) {
     var pending = [];
@@ -244,9 +264,13 @@
       if (t) out.push(t);
     }
     function pushImages(holder) {
-      imagesUnder(holder, []).forEach(function (src) {
-        images.push(src);
-        out.push({ image: src, fit: IMAGE_BOX.slice(), margin: [0, 2, 0, 8] });
+      imagesUnder(holder, []).forEach(function (found) {
+        if (found.pdf) {
+          out.push({ pdfAttachment: found.pdf, fit: IMAGE_BOX.slice(), margin: [0, 2, 0, 8] });
+          return;
+        }
+        images.push(found.src);
+        out.push({ image: found.src, fit: IMAGE_BOX.slice(), margin: [0, 2, 0, 8] });
       });
     }
     children(node).forEach(function (child) {
@@ -370,6 +394,93 @@
       .catch(function () { return null; });
   }
 
+  var pdfjsLoading = null;
+  /** pdf.js — the same vendored legacy build the dashboard draws thumbnails with — loaded once. */
+  function ensurePdfJs() {
+    if (!pdfjsLoading) {
+      pdfjsLoading = import(PDFJS + 'pdf.min.js').then(function (pdfjs) {
+        pdfjs.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.js';
+        return pdfjs;
+      });
+      pdfjsLoading.catch(function () { pdfjsLoading = null; }); // a failed load can be retried
+    }
+    return pdfjsLoading;
+  }
+
+  /**
+   * One page of a PDF as a JPEG data URL, at `pxPerPt` within a box of `box` points, with its size
+   * in CSS px (the unit `build()` caps a picture's box with), so it is never drawn bigger than it is.
+   */
+  function drawPdfPage(doc, n, box, pxPerPt) {
+    return doc.getPage(n).then(function (page) {
+      var unscaled = page.getViewport({ scale: 1 }); // in points
+      var fit = Math.min(1, box[0] / unscaled.width, box[1] / unscaled.height);
+      var scale = fit * pxPerPt;
+      var pixels = unscaled.width * unscaled.height * scale * scale;
+      if (pixels > MAX_PDF_PAGE_PIXELS) scale *= Math.sqrt(MAX_PDF_PAGE_PIXELS / pixels);
+      var viewport = page.getViewport({ scale: scale });
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.floor(viewport.width));
+      canvas.height = Math.max(1, Math.floor(viewport.height));
+      var ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff'; // a page is transparent where nothing is drawn
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      return page.render({ canvasContext: ctx, viewport: viewport }).promise.then(function () {
+        var data = canvas.toDataURL('image/jpeg', 0.88);
+        canvas.width = canvas.height = 0;
+        page.cleanup();
+        return { data: data, width: unscaled.width / 0.75, height: unscaled.height / 0.75 };
+      });
+    });
+  }
+
+  /**
+   * An attached PDF for the document: `{ count, first, pages }` — its first page for beside the
+   * announcement, and, when `full` and it has more than one, every page for the end instead. Null
+   * when it cannot be had, which leaves it out rather than failing the export.
+   */
+  function loadPdfAttachment(url, full) {
+    var task = null;
+    return ensurePdfJs()
+      .then(function (pdfjs) {
+        var base = location.origin + PDFJS;
+        task = pdfjs.getDocument({
+          url: new URL(url, location.href).href,
+          disableRange: true,
+          disableStream: true,
+          wasmUrl: base + 'wasm/',
+          cMapUrl: base + 'cmaps/',
+          cMapPacked: true,
+          standardFontDataUrl: base + 'standard_fonts/',
+          iccUrl: base + 'iccs/',
+        });
+        return task.promise;
+      })
+      .then(function (doc) {
+        var count = doc.numPages;
+        if (full && count > 1) {
+          var pages = [];
+          var next = Promise.resolve();
+          for (var n = 1; n <= Math.min(count, MAX_APPENDIX_PAGES); n++) {
+            (function (n) {
+              next = next.then(function () {
+                return drawPdfPage(doc, n, [CONTENT_WIDTH, PAGE_CONTENT_HEIGHT], FULL_PAGE_PX_PER_PT).then(function (p) { pages.push(p); });
+              });
+            })(n);
+          }
+          return next.then(function () { return { count: count, first: null, pages: pages }; });
+        }
+        return drawPdfPage(doc, 1, IMAGE_BOX, IMAGE_PX_PER_PT).then(function (first) {
+          return { count: count, first: first, pages: [] };
+        });
+      })
+      .catch(function () { return null; })
+      .then(function (result) {
+        if (task) task.destroy().catch(function () {});
+        return result;
+      });
+  }
+
   function slug(text) {
     return String(text || 'announcements').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'announcements';
   }
@@ -419,13 +530,16 @@
 
   /**
    * The pdfmake document for a preview element. `opts.title` heads the page (the app's name);
-   * `opts.emojiFont` names the registered emoji font (null strips emoji); `opts.now` and
-   * `opts.loadImage` exist for the tests.
+   * `opts.emojiFont` names the registered emoji font (null strips emoji); `opts.pdfsAtEnd` prints
+   * a multi-page attached PDF in full after the rest; `opts.now`, `opts.loadImage` and
+   * `opts.loadPdf` exist for the tests.
    */
   function build(root, opts) {
     opts = opts || {};
     var now = opts.now || new Date();
     var loadImage = opts.loadImage || loadImageAsDataUrl;
+    var loadPdf = opts.loadPdf || loadPdfAttachment;
+    var pdfsAtEnd = !!opts.pdfsAtEnd;
     var images = [];
     activeEmojiFont = opts.emojiFont || null;
     var content = blocks(root, [], images);
@@ -454,9 +568,59 @@
     }
 
     var unique = images.filter(function (s, i) { return s && images.indexOf(s) === i; });
-    return Promise.all(unique.map(loadImage)).then(function (dataUrls) {
+    var pdfUrls = [];
+    content.forEach(function (item) {
+      if (item.pdfAttachment && pdfUrls.indexOf(item.pdfAttachment) < 0) pdfUrls.push(item.pdfAttachment);
+    });
+    // One at a time: each is a worker, a download and a few page-sized canvases.
+    var pdfs = {};
+    var pdfsLoaded = pdfUrls.reduce(function (chain, url) {
+      return chain.then(function () {
+        return loadPdf(url, pdfsAtEnd).then(function (result) { pdfs[url] = result; });
+      });
+    }, Promise.resolve());
+    return Promise.all([Promise.all(unique.map(loadImage)), pdfsLoaded]).then(function (loadedAll) {
+      var dataUrls = loadedAll[0];
       var byUrl = {};
       unique.forEach(function (src, i) { byUrl[src] = dataUrls[i]; });
+      // An attached PDF becomes its first page, like an image; or, when it was drawn in full for the
+      // end, a note here and its pages after everything else — each PDF once, in the order its
+      // announcement comes. One that could not be read is left out, like an image that failed.
+      var appendix = [];
+      var appended = {};
+      content = content
+        .map(function (item) {
+          if (!item.pdfAttachment) return item;
+          var pdf = pdfs[item.pdfAttachment];
+          if (!pdf) return null;
+          if (pdf.pages.length) {
+            if (!appended[item.pdfAttachment]) {
+              appended[item.pdfAttachment] = true;
+              pdf.pages.forEach(function (page) {
+                appendix.push({
+                  image: page.data,
+                  fit: [Math.min(CONTENT_WIDTH, page.width * 0.75), Math.min(PAGE_CONTENT_HEIGHT, page.height * 0.75)],
+                  alignment: 'center',
+                  pageBreak: 'before',
+                });
+              });
+            }
+            return {
+              text:
+                pdf.count > pdf.pages.length
+                  ? 'PDF (' + pdf.count + ' pages): its first ' + pdf.pages.length + ' are printed at the end.'
+                  : 'PDF (' + pdf.count + ' pages): printed in full at the end.',
+              italics: true,
+              fontSize: 10,
+              color: '#555',
+              margin: [0, 2, 0, 8],
+            };
+          }
+          if (!pdf.first) return null;
+          byUrl[item.pdfAttachment] = pdf.first;
+          return { image: item.pdfAttachment, fit: item.fit, margin: item.margin };
+        })
+        .filter(Boolean);
       // An image that failed to fetch leaves no gap: pdfmake throws on a missing image, so the
       // item is dropped rather than the whole export.
       var resolved = content.filter(function (item) {
@@ -483,7 +647,7 @@
         },
         styles: { pageNumber: { alignment: 'center', fontSize: 9, color: '#888' } },
         pageBreakBefore: keepHeadingWithBody,
-        content: head.concat(resolved, foot),
+        content: head.concat(resolved, foot, appendix),
       };
     });
   }
@@ -502,7 +666,7 @@
     return ensurePdfMake()
       .then(function (pdfMake) {
         return ensureEmojiFont(pdfMake).then(function (hasEmoji) {
-          status('Building the PDF…');
+          status(root.querySelector && root.querySelector('a[data-pdf]') ? 'Drawing the attached PDFs…' : 'Building the PDF…');
           return build(root, Object.assign({ emojiFont: hasEmoji ? EMOJI_FONT : null }, opts)).then(function (doc) {
             // pdfmake 0.3's download() is async; 0.2's took a callback and returned nothing.
             return Promise.resolve(pdfMake.createPdf(doc).download(name));

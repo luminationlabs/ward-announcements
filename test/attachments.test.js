@@ -72,12 +72,13 @@ const PDF = Buffer.from(
 );
 const THUMB = jpegWithMetadata({ orientation: 1 });
 
-function uploadPdf(ownerId, { bytes = PDF, thumb = THUMB, ownerType = 'announcement', type = 'application/pdf' } = {}) {
+function uploadPdf(ownerId, { bytes = PDF, thumb = THUMB, ownerType = 'announcement', type = 'application/pdf', pages = '2' } = {}) {
   const data = new FormData();
   data.append('owner_type', ownerType);
   data.append('owner_id', String(ownerId));
   data.append('file', new Blob([bytes], { type }), 'Stake Youth Conference.pdf');
   if (thumb) data.append('thumb', new Blob([thumb], { type: 'image/jpeg' }), 'thumb.jpg');
+  if (pages !== null) data.append('pages', pages); // what the dashboard counted while drawing the thumbnail
   return req('/admin/attachments', { as: 'admin', method: 'POST', formData: data });
 }
 
@@ -404,10 +405,22 @@ describe('PDF attachments', () => {
     assert.deepEqual(mine.images, [{ url: added.url, alt: '', pdf: added.pdf }]);
   });
 
-  test('the copy and Save as PDF preview leave an attached PDF out', async () => {
+  test('the preview shows a PDF as its thumbnail, linked to it and marked for the export', async () => {
     const html = await (await req('/admin/announcements/preview/fragment', { as: 'admin' })).text();
     assert.ok(html.includes('Youth conference'), 'the announcement is in the preview');
-    assert.ok(!html.includes(added.key) && !html.includes(added.url.slice('/images/'.length)), 'its PDF is not');
+    const link = new RegExp(`<a href="[^"]*/images/${added.key}" title="PDF" data-pdf="[^"]*/images/${added.key}" data-pages="2"><img src="[^"]*${added.url}"`);
+    assert.match(html, link, 'its thumbnail links to the PDF, with the page count the dashboard sent');
+  });
+
+  test('a page count that makes no sense is not stored', async () => {
+    for (const pages of ['0', '-3', '2.5', 'many', '99999', '0x10', '3e0']) {
+      const res = await uploadPdf(announcementId, { pages });
+      assert.equal(res.status, 201);
+      const { id } = await res.json();
+      const { tables } = await (await req('/admin/backup.json', { as: 'admin' })).json();
+      assert.equal(tables.attachments.find((a) => a.id === id).page_count, null, pages);
+      await req(`/admin/attachments/${id}`, { as: 'admin', method: 'DELETE' });
+    }
   });
 
   test('the backup names the thumbnail beside the PDF', async () => {
@@ -416,6 +429,7 @@ describe('PDF attachments', () => {
     assert.equal(row.content_type, 'application/pdf');
     assert.equal(row.thumb_key, added.url.slice('/images/'.length));
     assert.equal(row.size, PDF.length, 'the quota counts the PDF');
+    assert.equal(row.page_count, 2, 'and its pages, as the dashboard counted them');
   });
 
   test('a PDF without a thumbnail, or with a thumbnail that is not a JPEG, is refused', async () => {

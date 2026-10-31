@@ -1159,13 +1159,13 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
   async function liveRichPreview(): Promise<string> {
     const list = await listPublicAnnouncements();
     const images = groupByOwner(await listAttachmentsForOwners('announcement', list.map((a) => a.id)));
-    // Images only: the copy and the PDF are the week's text with its flyers, and an attached PDF
-    // is something to open, not a picture to paste into an email.
+    // A PDF shows as its thumbnail, linked to it; one without a thumbnail (only a hand-edited
+    // backup could make one) has nothing to show.
     return richPreviewHtml(
       list.map((a) => ({
         title: a.title,
         body: a.body,
-        images: (images.get(a.id) ?? []).filter((row) => row.content_type !== PDF_TYPE),
+        images: (images.get(a.id) ?? []).filter((row) => row.content_type !== PDF_TYPE || row.thumb_key),
       })),
     );
   }
@@ -2009,7 +2009,17 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
     const storedOwner = pending ? PENDING_OWNER : ownerType;
     let id: number;
     try {
-      id = await createAttachment({ ownerType: storedOwner, ownerId, key, filename, contentType, size: data.byteLength, thumbKey });
+      id = await createAttachment({
+        ownerType: storedOwner,
+        ownerId,
+        key,
+        filename,
+        contentType,
+        size: data.byteLength,
+        thumbKey,
+        // As the dashboard counted them; a claim, but only ever used to word a checkbox.
+        pageCount: isPdf ? pageCountOf(body['pages']) : null,
+      });
     } catch (err) {
       // No row names what was just stored, so nothing else would ever delete it.
       for (const k of thumbKey ? [key, thumbKey] : [key]) await files.delete(k).catch(() => {});
@@ -2246,6 +2256,13 @@ async function editorAttachments(rows: AttachmentRow[]): Promise<EditorAttachmen
   return Promise.all(
     rows.map(async (row) => (row.thumb_key ? { ...row, pdfHref: await dashboardPdfHref(row) } : row)),
   );
+}
+
+/** The page count the dashboard sent with a PDF, or null when it sent none that makes sense. */
+function pageCountOf(value: unknown): number | null {
+  if (typeof value !== 'string' || !/^\d{1,5}$/.test(value)) return null;
+  const n = Number(value);
+  return n >= 1 && n <= 10_000 ? n : null;
 }
 
 /** A PDF's thumbnail is a page drawn at phone size, a few tens of KB; this is generous. */

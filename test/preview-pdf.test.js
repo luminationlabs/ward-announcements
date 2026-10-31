@@ -368,6 +368,87 @@ describe('the preview-to-PDF converter', () => {
     assert.match(created[created.length - 1].info.title, /September 27, 2026/u);
   });
 
+  // An attached PDF is its thumbnail in the preview, in a link marked `data-pdf` (richPreviewHtml).
+  // The export draws it from the PDF itself: a one-page flyer beside its announcement like an
+  // image, and a longer one the same way — or, with "Print multi-page PDFs in full at the end"
+  // ticked, as a note there and its pages after everything else.
+  const WITH_PDFS = `<div>
+<h3>Flyer</h3>
+<p><a href="/images/one.pdf" data-pdf="/images/one.pdf" data-pages="1"><img src="/images/one.jpg" alt="PDF"></a><a href="/images/pic"><img src="/images/pic" alt=""></a></p>
+<h3>Packet</h3>
+<p><a href="/images/three.pdf" data-pdf="/images/three.pdf" data-pages="3"><img src="/images/three.jpg" alt="PDF"></a></p>
+<h3>Packet again</h3>
+<p><a href="/images/three.pdf" data-pdf="/images/three.pdf" data-pages="3"><img src="/images/three.jpg" alt="PDF"></a></p>
+<p data-app-link><a href="https://ward.example/#i=x">Get these announcements on your phone each week</a>.</p>
+</div>`;
+  const page = (name) => ({ data: `data:image/jpeg;base64,${name}`, width: 816, height: 1056 }); // letter, in CSS px
+  const pdfLoader = (asked) => async (url, full) => {
+    asked.push([url, full]);
+    const count = url.includes('three') ? 3 : 1;
+    if (full && count > 1) return { count, first: null, pages: [page('p1'), page('p2'), page('p3')] };
+    return { count, first: page(url.includes('three') ? 'three-first' : 'one-first'), pages: [] };
+  };
+  const imageLoader = async () => ({ data: 'data:image/jpeg;base64,PIC', width: 400, height: 300 });
+
+  test("unticked, every attached PDF prints its first page beside its announcement, drawn from the PDF", async () => {
+    const { api } = load();
+    const asked = [];
+    const doc = await api.build(parse(WITH_PDFS), { now: new Date(2026, 0, 4), loadImage: imageLoader, loadPdf: pdfLoader(asked) });
+    // Spread: arrays born in the vm have their own Array prototype, which deepEqual tells apart.
+    const images = [...doc.content.filter((i) => i.image).map((i) => i.image)];
+    assert.deepEqual(images, [
+      'data:image/jpeg;base64,one-first',
+      'data:image/jpeg;base64,PIC',
+      'data:image/jpeg;base64,three-first',
+      'data:image/jpeg;base64,three-first',
+    ], 'in place, in order, never the small thumbnail');
+    assert.ok(!doc.content.some((i) => i.pageBreak), 'nothing is added at the end');
+    assert.deepEqual(asked, [['/images/one.pdf', false], ['/images/three.pdf', false]], 'each PDF read once');
+  });
+
+  test('ticked, a multi-page PDF prints in full at the end, and a one-page flyer stays beside its announcement', async () => {
+    const { api } = load();
+    const asked = [];
+    const doc = await api.build(parse(WITH_PDFS), { now: new Date(2026, 0, 4), loadImage: imageLoader, loadPdf: pdfLoader(asked), pdfsAtEnd: true });
+    const c = doc.content;
+    assert.equal(c.filter((i) => i.image === 'data:image/jpeg;base64,one-first').length, 1, 'the one-page flyer is still beside its announcement');
+    const notes = c.filter((i) => /printed in full at the end/u.test(textOf(i)));
+    assert.equal(notes.length, 2, 'each announcement with the packet says where it went');
+    assert.match(textOf(notes[0]), /3 pages/u);
+    const appendix = c.filter((i) => i.pageBreak === 'before');
+    assert.deepEqual([...appendix.map((i) => i.image)], ['p1', 'p2', 'p3'].map((n) => `data:image/jpeg;base64,${n}`), 'its pages once, in order');
+    assert.ok(c.indexOf(appendix[0]) > c.findIndex((i) => i.unbreakable), 'after the app link that closes the handout');
+    assert.ok(appendix.every((i) => i.fit[0] <= 504 && i.fit[1] <= 792 - 112), 'each fits a page');
+  });
+
+  test('a very long PDF prints only its first pages at the end, and says so', async () => {
+    const { api } = load();
+    // What loadPdfAttachment returns for a 120-page PDF: the count, and the 30 pages it drew.
+    const doc = await api.build(parse(WITH_PDFS), {
+      now: new Date(2026, 0, 4),
+      loadImage: imageLoader,
+      loadPdf: async (url, full) =>
+        url.includes('three') && full
+          ? { count: 120, first: null, pages: Array.from({ length: 30 }, (_, i) => page('p' + i)) }
+          : { count: 1, first: page('one-first'), pages: [] },
+      pdfsAtEnd: true,
+    });
+    assert.equal(doc.content.filter((i) => i.pageBreak === 'before').length, 30);
+    assert.match(textOf(doc.content.find((i) => /at the end/u.test(textOf(i)))), /120 pages\): its first 30 are printed at the end/u);
+  });
+
+  test('a PDF that cannot be read is left out, and the rest still prints', async () => {
+    const { api } = load();
+    const doc = await api.build(parse(WITH_PDFS), {
+      now: new Date(2026, 0, 4),
+      loadImage: imageLoader,
+      loadPdf: async () => null,
+      pdfsAtEnd: true,
+    });
+    assert.deepEqual([...doc.content.filter((i) => i.image).map((i) => i.image)], ['data:image/jpeg;base64,PIC']);
+    assert.ok(doc.content.some((i) => /Packet/u.test(textOf(i))), 'the announcements are all there');
+  });
+
   test('parseStyle reads only what the preview writes', () => {
     const { api } = load();
     // Objects born in the vm have their own Object prototype; compare structure, not identity.

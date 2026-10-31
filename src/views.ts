@@ -2474,7 +2474,15 @@ export function richPreviewHtml(items: RichPreviewItem[]): string {
       ? `<p style="margin:0.4em 0 0.6em">${item.images
           .map((row) => {
             const url = `${origin}/images/${escapeHtml(row.key)}`;
-            return `<a href="${url}"><img src="${url}" alt="" style="max-height:220px;max-width:100%;height:auto;border-radius:6px;margin:0 6px 6px 0;vertical-align:top"></a>`;
+            const style = 'max-height:220px;max-width:100%;height:auto;border-radius:6px;margin:0 6px 6px 0;vertical-align:top';
+            // A PDF is its first page, linked to the whole thing (an announcement's is public, so a
+            // reader of the pasted email can open it). `data-pdf` and `data-pages` are for
+            // public/preview-pdf.js, which draws the PDF itself rather than this small thumbnail.
+            if (row.thumb_key) {
+              const thumb = `${origin}/images/${escapeHtml(row.thumb_key)}`;
+              return `<a href="${url}" title="PDF" data-pdf="${url}" data-pages="${row.page_count ?? ''}"><img src="${thumb}" alt="PDF" style="${style};border:1px solid #ccc"></a>`;
+            }
+            return `<a href="${url}"><img src="${url}" alt="" style="${style}"></a>`;
           })
           .join('')}</p>`
       : '';
@@ -2524,6 +2532,7 @@ function previewControls(bodyId: string, opts: { pageLink?: boolean } = {}): str
             : ''
         }
         <label class="muted small"><input type="checkbox" data-app-link-toggle="${bodyId}"> Include a link to the app</label>
+        <label class="muted small" data-pdf-pages-option="${bodyId}" hidden><input type="checkbox" data-pdf-pages-toggle> <span data-pdf-pages-label>Print multi-page PDFs in full at the end</span></label>
         <span class="spinner" data-pdf-spinner hidden aria-hidden="true"></span>
         <span class="muted small" data-copy-status hidden aria-live="polite"></span>
       </div>`;
@@ -2552,6 +2561,37 @@ const previewScript = (): string => `${scriptTag()}
         clearTimeout(status._t);
         if (!sticky) status._t = setTimeout(function () { status.hidden = true; }, 2500);
       }
+      // "Print multi-page PDFs in full at the end": offered only when an attached PDF has more than
+      // one page (or no count, from before counts were kept), and worded with how many pages that
+      // adds. A one-page PDF always prints beside its announcement, like an image. Read off the
+      // preview's own markup, so it follows the modal's refetch (the 'preview-updated' event).
+      function syncPdfOption() {
+        document.querySelectorAll('[data-pdf-pages-option]').forEach(function (label) {
+          var el = document.getElementById(label.getAttribute('data-pdf-pages-option'));
+          var total = 0;
+          var unknown = false;
+          var several = false;
+          var seen = {};
+          (el ? el.querySelectorAll('a[data-pdf]') : []).forEach(function (a) {
+            // A PDF attached to two announcements prints once; at most 30 of its pages (preview-pdf.js).
+            var url = a.getAttribute('data-pdf');
+            if (seen[url]) return;
+            seen[url] = true;
+            var pages = Number(a.getAttribute('data-pages'));
+            if (!pages) unknown = several = true;
+            else if (pages > 1) {
+              total += Math.min(pages, 30);
+              several = true;
+            }
+          });
+          label.hidden = !several;
+          if (!several) label.querySelector('input').checked = false;
+          label.querySelector('[data-pdf-pages-label]').textContent =
+            'Print multi-page PDFs in full at the end' + (unknown ? '' : ' (' + total + ' pages)');
+        });
+      }
+      syncPdfOption();
+      document.addEventListener('preview-updated', syncPdfOption);
       // "Include a link to the app" puts the line into the preview itself, so Copy and Save as PDF
       // carry it without knowing about it. Fetched when the box is ticked rather than when Copy is
       // pressed: Safari only lets a page write the clipboard inside the click, not after a fetch.
@@ -2612,8 +2652,10 @@ const previewScript = (): string => `${scriptTag()}
         if (!el) return;
         if (!window.PreviewPdf) return say(btn, 'Still loading — try again in a moment.');
         btn.disabled = true;
+        var pdfOption = document.querySelector('[data-pdf-pages-option="' + el.id + '"]');
         window.PreviewPdf.download(el, {
           title: btn.getAttribute('data-title'),
+          pdfsAtEnd: !!(pdfOption && !pdfOption.hidden && pdfOption.querySelector('input').checked),
           onStatus: function (text) { say(btn, text, true); },
         })
           .then(function (name) { say(btn, 'Saved ' + name + '.'); })
@@ -3209,6 +3251,7 @@ ${columns(
             var link = body.querySelector('[data-app-link]');
             body.innerHTML = markup;
             if (link) body.appendChild(link);
+            document.dispatchEvent(new Event('preview-updated'));
           })
           .catch(function () {});
       }
@@ -3553,6 +3596,7 @@ function editorScripts(opts: { kind: 'announcement' | 'page' | 'program'; placeh
       function pdfThumb(file) {
         // The loading task, not the document, is what pdf.js 6 tears down (and its worker with it).
         var task;
+        var pages = 0;
         function done() {
           if (task) task.destroy().catch(function () {});
         }
@@ -3574,6 +3618,7 @@ function editorScripts(opts: { kind: 'announcement' | 'page' | 'program'; placeh
             });
           })
           .then(function (doc) {
+            pages = doc.numPages; // sent with the upload, for the announcements export's choice
             return doc.getPage(1);
           })
           .then(function (page) {
@@ -3592,7 +3637,7 @@ function editorScripts(opts: { kind: 'announcement' | 'page' | 'program'; placeh
             });
           })
           .then(
-            function (blob) { done(); return blob; },
+            function (blob) { done(); return { blob: blob, pages: pages }; },
             function (err) { done(); throw err; },
           );
       }
@@ -3646,9 +3691,9 @@ function editorScripts(opts: { kind: 'announcement' | 'page' | 'program'; placeh
         status.textContent = pdf ? 'Preparing the PDF…' : 'Uploading…';
         var prepare = pdf
           ? pdfThumb(file).then(
-              function (thumb) {
+              function (drawn) {
                 status.textContent = 'Uploading…';
-                return { file: file, thumb: thumb };
+                return { file: file, thumb: drawn.blob, pages: drawn.pages };
               },
               function (err) {
                 console.error('PDF thumbnail failed', err); // the message below is for the clerk; this is for whoever debugs it
@@ -3668,6 +3713,7 @@ function editorScripts(opts: { kind: 'announcement' | 'page' | 'program'; placeh
             var upload = pdf ? new File([prepared.file], prepared.file.name || 'document.pdf', { type: 'application/pdf' }) : prepared.file;
             data.append('file', upload, upload.name || 'image.jpg');
             if (prepared.thumb) data.append('thumb', prepared.thumb, 'thumb.jpg');
+            if (prepared.pages) data.append('pages', String(prepared.pages));
             return fetch('/admin/attachments', { method: 'POST', body: data, redirect: 'manual' });
           })
           .then(function (res) {

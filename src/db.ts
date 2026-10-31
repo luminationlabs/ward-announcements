@@ -213,6 +213,8 @@ const SCHEMA: string[] = [
   //
   // A PDF is one row with two objects: `key` is the PDF, `thumb_key` a JPEG of its first page that
   // the dashboard drew when it was uploaded (the server has no CPU to draw one). Null for an image.
+  // `page_count` is how many pages pdf.js found then, for the announcements export's "print in full
+  // at the end" choice; null for an image, and for a PDF uploaded before it was recorded.
   `CREATE TABLE IF NOT EXISTS attachments (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_type   TEXT NOT NULL,                      -- 'announcement' | 'program' | 'page'
@@ -222,7 +224,8 @@ const SCHEMA: string[] = [
     content_type TEXT NOT NULL,
     size         INTEGER NOT NULL,
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
-    thumb_key    TEXT                                -- a PDF's first page, also under /images/
+    thumb_key    TEXT,                               -- a PDF's first page, also under /images/
+    page_count   INTEGER                             -- a PDF's pages, as the dashboard counted them
   )`,
 
   `CREATE INDEX IF NOT EXISTS idx_attachments_owner ON attachments (owner_type, owner_id)`,
@@ -308,8 +311,9 @@ const SCHEMA: string[] = [
  * 9 — the `spent_challenges` table (answered WebAuthn challenges, so one cannot be answered twice).
  * 10 — the `blocked_subscriptions` table (devices removed under Subscribers, so a launch cannot re-add them).
  * 11 — `attachments.thumb_key` (a PDF attachment's first-page thumbnail).
+ * 12 — `attachments.page_count` (a PDF attachment's pages).
  */
-const SCHEMA_VERSION = '11';
+const SCHEMA_VERSION = '12';
 
 /**
  * Columns an already-created table needs. `CREATE TABLE IF NOT EXISTS` cannot express one, so the
@@ -350,6 +354,11 @@ const MIGRATIONS: { table: string; column: string; sql: string }[] = [
     table: 'attachments',
     column: 'thumb_key',
     sql: `ALTER TABLE attachments ADD COLUMN thumb_key TEXT`,
+  },
+  {
+    table: 'attachments',
+    column: 'page_count',
+    sql: `ALTER TABLE attachments ADD COLUMN page_count INTEGER`,
   },
 ];
 
@@ -909,6 +918,8 @@ export interface AttachmentRow {
   created_at: string;
   /** A PDF's first-page JPEG, stored beside it; null for an image. */
   thumb_key: string | null;
+  /** A PDF's pages, as counted on upload; null for an image or a PDF from before it was recorded. */
+  page_count: number | null;
 }
 
 /** Every stored object a row names: the file itself and, for a PDF, its thumbnail. */
@@ -930,8 +941,8 @@ const ATTACH = {
   // the column on an existing database.
   byKey: `SELECT * FROM attachments WHERE key = ? OR thumb_key = ?`,
   insert: `
-    INSERT INTO attachments (owner_type, owner_id, key, filename, content_type, size, thumb_key)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO attachments (owner_type, owner_id, key, filename, content_type, size, thumb_key, page_count)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `,
   delete: `DELETE FROM attachments WHERE id = ?`,
   deleteForOwner: `DELETE FROM attachments WHERE owner_type = ? AND owner_id = ?`,
@@ -1060,6 +1071,7 @@ export async function createAttachment(input: {
   contentType: string;
   size: number;
   thumbKey?: string | null;
+  pageCount?: number | null;
 }): Promise<number> {
   const info = await sql().run(ATTACH.insert, [
     input.ownerType,
@@ -1069,6 +1081,7 @@ export async function createAttachment(input: {
     input.contentType,
     input.size,
     input.thumbKey ?? null,
+    input.pageCount ?? null,
   ]);
   return info.lastRowId;
 }
