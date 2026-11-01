@@ -268,6 +268,29 @@ describe('the preview-to-PDF converter', () => {
     assert.equal(big.fit[1], 260);
   });
 
+  test('portrait flyers side by side share a row; a wide picture keeps its own, centred', async () => {
+    const { api } = load();
+    const sizes = { tall1: [1200, 1600], tall2: [900, 1400], tall3: [1000, 1500], wide: [2400, 900] };
+    const doc = await api.build(
+      parse('<div><p><img src="/images/tall1"><img src="/images/tall2"></p><p>text</p><p><img src="/images/tall3"><img src="/images/wide"></p></div>'),
+      {
+        now: new Date(2026, 0, 4),
+        loadImage: async (src) => {
+          const [width, height] = sizes[src.split('/').pop()];
+          return { data: `data:image/jpeg;base64,${src.split('/').pop()}`, width, height };
+        },
+      },
+    );
+    const row = doc.content.find((i) => i.columns);
+    assert.ok(row.unbreakable, 'a pair never splits across a page');
+    assert.deepEqual([...row.columns.map((c) => c.image)], ['data:image/jpeg;base64,tall1', 'data:image/jpeg;base64,tall2']);
+    assert.ok(row.columns.every((c) => c.fit[0] <= (504 - 14) / 2 && c.alignment === 'center'));
+    const alone = doc.content.filter((i) => i.image);
+    assert.deepEqual([...alone.map((i) => i.image)], ['data:image/jpeg;base64,tall3', 'data:image/jpeg;base64,wide'], 'a wide picture is not halved, so its neighbour stands alone too');
+    assert.ok(alone.every((i) => i.alignment === 'center'));
+    assert.equal(doc.content.filter((i) => i.columns).length, 1, 'pictures with text between them are not paired');
+  });
+
   // "Include a link to the app" appends one marked paragraph to the preview. In the PDF it closes
   // the document under a rule, with a QR of the same address beside it.
   test('an image is embedded at the size the page prints it, not the size it was uploaded', () => {

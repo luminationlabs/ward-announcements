@@ -35,6 +35,10 @@
   var PAGE = { size: 'LETTER', margins: [54, 56, 54, 56] }; // points; 3/4" sides
   var CONTENT_WIDTH = 612 - PAGE.margins[0] - PAGE.margins[2];
   var IMAGE_BOX = [CONTENT_WIDTH, 260]; // points; the most room an image is given on the page
+  var IMAGE_GAP = 14; // points between two pictures side by side
+  // Two pictures share a row when neither shrinks below this share of the size it would have
+  // alone: portrait flyers lose nothing, a wide banner keeps the page to itself.
+  var PAIR_MIN_SCALE = 0.85;
   var IMAGE_PX_PER_PT = 4; // 288 dpi at the printed size, so a flyer's small text survives zooming in
   var PAGE_CONTENT_HEIGHT = 792 - PAGE.margins[1] - PAGE.margins[3] - 12; // room under the page number
   var FULL_PAGE_PX_PER_PT = 3; // 216 dpi for a whole attached page: prints cleanly, keeps the file sane
@@ -515,6 +519,46 @@
   }
 
   /**
+   * Lay pictures out in rows. Pictures next to each other (an announcement's attachments) go two
+   * to a row when both keep most of their size at half the width — one flyer per row left most of
+   * the page blank and pushed the next flyer overleaf. Any other picture is centred on its own.
+   * `sizes` maps an item to its natural size in points, or null when it is not known.
+   */
+  function rowsOfImages(content, sizes) {
+    var half = (CONTENT_WIDTH - IMAGE_GAP) / 2;
+    function fitScale(size, box) {
+      return Math.min(1, box[0] / size.width, box[1] / size.height);
+    }
+    function pairable(item) {
+      var size = sizes(item);
+      if (!size) return false;
+      return fitScale(size, [half, IMAGE_BOX[1]]) >= PAIR_MIN_SCALE * fitScale(size, IMAGE_BOX);
+    }
+    var out = [];
+    for (var i = 0; i < content.length; i++) {
+      var item = content[i];
+      if (!item.image) { out.push(item); continue; }
+      var next = content[i + 1];
+      if (next && next.image && pairable(item) && pairable(next)) {
+        var margin = [0, Math.max(item.margin[1], next.margin[1]), 0, Math.max(item.margin[3], next.margin[3])];
+        out.push({
+          // Unbreakable: a taller partner overleaf would leave its pair alone at a page's foot.
+          unbreakable: true,
+          margin: margin,
+          columnGap: IMAGE_GAP,
+          columns: [item, next].map(function (pic) {
+            return { width: '*', image: pic.image, fit: [Math.min(pic.fit[0], half), pic.fit[1]], alignment: 'center' };
+          }),
+        });
+        i++;
+        continue;
+      }
+      out.push(Object.assign({}, item, { alignment: 'center' }));
+    }
+    return out;
+  }
+
+  /**
    * The "get the app" line the dashboard's checkbox adds to the preview (`appLinkHtml()`), as text
    * runs plus the address they link to. Null when the box is not ticked.
    */
@@ -623,6 +667,7 @@
         .filter(Boolean);
       // An image that failed to fetch leaves no gap: pdfmake throws on a missing image, so the
       // item is dropped rather than the whole export.
+      var natural = new Map();
       var resolved = content.filter(function (item) {
         if (!item.image) return true;
         var loaded = byUrl[item.image];
@@ -632,10 +677,12 @@
         // `fit` scales up as readily as down; cap the box at the image's own size (CSS px → pt)
         // so a small logo stays small and only a big flyer is shrunk to the page.
         if (loaded.width && loaded.height) {
+          natural.set(item, { width: loaded.width * 0.75, height: loaded.height * 0.75 });
           item.fit = [Math.min(item.fit[0], loaded.width * 0.75), Math.min(item.fit[1], loaded.height * 0.75)];
         }
         return true;
       });
+      resolved = rowsOfImages(resolved, function (item) { return natural.get(item) || null; });
       return {
         pageSize: PAGE.size,
         pageMargins: PAGE.margins,
