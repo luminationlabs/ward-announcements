@@ -924,6 +924,62 @@ function initShare() {
   });
 }
 
+// --- Gospel Library tip -----------------------------------------------------
+
+// The Church's links (a program's hymns, a scripture in an announcement) are universal links: in
+// Safari, or on a Mac, they open the Gospel Library app. An iPhone home-screen app opens them in
+// its own browser sheet instead, which never hands them to the app — until the member presses and
+// holds one and picks "Open in Library", which iOS then remembers. So the first such tap in that
+// app shows how, once per phone, rather than guessing at the app with its gospellibrary:// scheme
+// (which does nothing at all on a phone without it).
+const LIBRARY_TIP_KEY = 'library-tip-shown';
+const librarySheet = document.getElementById('library-sheet');
+
+function isLibraryLink(a) {
+  try {
+    const url = new URL(a.href);
+    return /(^|\.)churchofjesuschrist\.org$/.test(url.hostname) && url.pathname.startsWith('/study/');
+  } catch {
+    return false;
+  }
+}
+
+function closeLibrarySheet() {
+  librarySheet.hidden = true;
+  document.body.style.overflow = '';
+}
+
+function initLibraryTip() {
+  if (!librarySheet || !isiOS || !isStandalone) return;
+  const open = document.getElementById('library-open');
+  document.addEventListener('click', (e) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const a = e.target.closest?.('a[href]');
+    if (!a || a === open || !isLibraryLink(a)) return;
+    // Storage that cannot be read or written means the tip could not be kept from repeating on
+    // every tap: better never shown than a nag.
+    try {
+      if (localStorage.getItem(LIBRARY_TIP_KEY)) return;
+      localStorage.setItem(LIBRARY_TIP_KEY, '1');
+    } catch {
+      return;
+    }
+    e.preventDefault();
+    open.href = a.href;
+    librarySheet.hidden = false;
+    document.body.style.overflow = 'hidden';
+  });
+  // The link goes on its way; the sheet is done either way.
+  open.addEventListener('click', closeLibrarySheet);
+  librarySheet.addEventListener('click', (e) => {
+    if (e.target === librarySheet) closeLibrarySheet();
+  });
+  document.getElementById('library-sheet-close').addEventListener('click', closeLibrarySheet);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !librarySheet.hidden) closeLibrarySheet();
+  });
+}
+
 // --- Push subscription -----------------------------------------------------
 
 function urlBase64ToUint8Array(base64String) {
@@ -1339,6 +1395,7 @@ async function main() {
   initPdfViewer();
   initTabs();
   initShare(); // before the service-worker early-returns below: sharing works without push
+  initLibraryTip();
   initAppearance();
 
   // The entry rule, decided once per cold load: a plain `/` (the QR code's URL) opens on the

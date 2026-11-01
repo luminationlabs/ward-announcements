@@ -221,6 +221,24 @@
       </div>
     </div>
 
+    <!-- The one-time Gospel Library tip (app.js): an iPhone home-screen app opens the Church's links
+         in its own browser sheet, never in the Library app, until the member picks "Open in Library"
+         from a press-and-hold once. "Open" is a real link, so it can be pressed and held right here. -->
+    <div id="library-sheet" class="sheet-backdrop" hidden>
+      <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="library-sheet-title">
+        <div class="sheet-handle"></div>
+        <button id="library-sheet-close" class="sheet-close" type="button" aria-label="Close">
+          <img src="/img/install/close.svg" alt="" width="18" height="18" />
+        </button>
+        <h2 id="library-sheet-title">Prefer the Gospel Library App?</h2>
+        <p>Links like this one open here in the app. To open them in Gospel Library instead, press and hold the link and choose <strong>Open in Library</strong>. Your phone remembers, so you only do this once.</p>
+        <p class="muted small">You can try it on the Open button.</p>
+        <div class="actions">
+          <a id="library-open" class="btn primary" target="_blank" rel="noopener">Open</a>
+        </div>
+      </div>
+    </div>
+
     <!-- Full-screen viewer for an announcement image (opened by app.js when a thumbnail is tapped).
          Deliberately not a <dialog>: iOS Safari only grew support recently, and the audience is
          mostly iPhones that may be a version or two behind. -->
