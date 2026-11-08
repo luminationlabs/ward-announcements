@@ -69,6 +69,30 @@ describe('an editor, from invite to sign-in', () => {
     assert.equal(again.status, 401);
   });
 
+  test('the invite page learns on arrival whether its link is fresh, spent or gone, and offers sign-in', async () => {
+    // Reopened a week later from the same bookmark, a spent link used to look exactly like a fresh
+    // one until the button was pressed. The page asks first.
+    const check = (token, as) => req('/admin/invite/check', { as, method: 'POST', json: { token } });
+    const spent = await (await check(editor.token, 'someone-else')).json();
+    assert.equal(spent.state, 'used');
+    assert.ok(!Number.isNaN(Date.parse(spent.at)), 'says when it was used, as an ISO stamp');
+
+    const created = await req('/admin/people', { as: 'owner', method: 'POST', form: { name: 'Brother Unopened', role: 'editor' } });
+    const id = /\/admin\/people\/(\d+)/.exec(created.headers.get('location'))[1];
+    const fresh = /#t=([A-Za-z0-9_-]+)/.exec(await (await req(`/admin/people/${id}`, { as: 'owner' })).text())[1];
+    assert.deepEqual(await (await check(fresh, 'someone-else')).json(), { state: 'usable' });
+
+    // A new link replaces the old one, which is then simply gone — not "used", not "expired".
+    await req(`/admin/people/${id}/invite`, { as: 'owner', method: 'POST', form: {} });
+    assert.deepEqual(await (await check(fresh, 'someone-else')).json(), { state: 'unknown' });
+    assert.deepEqual(await (await check('never-issued', 'someone-else')).json(), { state: 'unknown' });
+    assert.equal((await check(42, 'someone-else')).status, 400, 'a non-string token is refused, not 500');
+
+    const page = await (await req('/admin/invite')).text();
+    assert.match(page, /href="\/admin\/login"/, 'the way in for someone whose passkey already exists');
+    assert.match(page, /\/admin\/invite\/check/, 'the page asks before showing the button');
+  });
+
   test('later, the passkey signs them in on its own — no password, no username', async () => {
     const res = await signInWithPasskey(req, editor.authenticator, { as: 'editor-later' });
     assert.equal(res.status, 200);

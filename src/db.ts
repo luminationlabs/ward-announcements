@@ -2191,6 +2191,16 @@ export async function findUsableAdminInvite(token: string): Promise<AdminInviteR
   );
 }
 
+/**
+ * The invite with this token in whatever state it is in — spent, expired or live — so the invite
+ * page can say *why* a link no longer works. Undefined when no such token was ever issued, or when
+ * a newer invite replaced it (`createAdminInvite` deletes the person's earlier rows) or the person
+ * was removed.
+ */
+export async function findAdminInvite(token: string): Promise<AdminInviteRow | undefined> {
+  return sql().first<AdminInviteRow>(`SELECT * FROM admin_invites WHERE token = ?`, [token]);
+}
+
 /** The person's current invite, if one is still usable — what the person page shows. */
 export async function currentAdminInvite(userId: number): Promise<AdminInviteRow | undefined> {
   return sql().first<AdminInviteRow>(

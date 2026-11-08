@@ -147,6 +147,7 @@ import {
 import {
   INVITE_DAYS,
   invitePerson,
+  inviteStatus,
   addOptions,
   addVerify,
   randomToken,
@@ -861,6 +862,12 @@ export function createApp(options: AppOptions): Hono<AppEnv> {
   app.post('/admin/passkey/login/options', limit(30), async (c) => passkeyReply(c, await signInOptions(c)));
   app.post('/admin/passkey/login/verify', limit(10), async (c) => passkeyReply(c, await signInVerify(c, await readBody(c))));
   app.get('/admin/invite', (c) => html(c, invitePage()));
+  // The invite page asks this as it loads, so a spent or expired link says so before the button
+  // is pressed — and offers sign-in — instead of looking fresh until the registration fails.
+  app.post('/admin/invite/check', limit(30), async (c) => {
+    const { token } = (await readBody(c)) as { token?: unknown };
+    return passkeyReply(c, await inviteStatus(token));
+  });
   app.post('/admin/passkey/register/options', limit(30), async (c) => {
     const { token } = (await readBody(c)) as { token?: unknown };
     return passkeyReply(c, await registrationOptions(c, token));

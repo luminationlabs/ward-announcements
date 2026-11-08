@@ -296,18 +296,26 @@ export function loginPage(error?: string, ownerSignIn = true, next?: string): st
 
 /** Where an invite link lands: create a passkey on this device, and be signed in. */
 export function invitePage(): string {
+  // The page asks the server what state the link is in before showing the button. A link that had
+  // been redeemed looked exactly like a fresh one for the rest of its week, and the person who had
+  // kept it as their bookmark pressed Create Passkey the next Sunday and read the refusal — the
+  // server's, or on the very phone that had used it the browser's own — as being locked out. So a
+  // spent, expired or replaced link says so on arrival, with the way in beside it: sign in with the
+  // passkey the link made. The sign-in line also appears whenever a registration fails for one of
+  // those reasons, for a link that is spent between loading the page and pressing the button.
   return layout(
     'Set Up Your Passkey',
     `    <section class="card">
       <h2>Welcome</h2>
       <p>You have been invited to help with <strong>${escapeHtml(config.appName)}</strong>.</p>
-      <p class="muted small">Create a passkey on this phone or computer. It is how you will sign in
+      <p class="muted small" id="passkey-intro">Create a passkey on this phone or computer. It is how you will sign in
       from now on — with Face ID, a fingerprint or your screen lock, and no password to remember. On
       an iPhone it is kept in iCloud Keychain, so a new phone will have it too.</p>
       <div class="actions">
-        <button class="btn primary" type="button" id="passkey-create">Create Passkey</button>
+        <button class="btn primary" type="button" id="passkey-create" disabled>Create Passkey</button>
       </div>
       <p class="small" id="passkey-status" role="status" aria-live="polite"></p>
+      <p class="small" id="passkey-signin" hidden>Already created your passkey? <a href="/admin/login">Sign in</a> with it instead. Need a new invite? Ask an administrator.</p>
     </section>`,
     {
       head: '<meta name="referrer" content="no-referrer" />',
@@ -317,14 +325,26 @@ export function invitePage(): string {
     (function () {
       var button = document.getElementById('passkey-create');
       var status = document.getElementById('passkey-status');
+      var intro = document.getElementById('passkey-intro');
+      var signin = document.getElementById('passkey-signin');
       var token = new URLSearchParams(location.hash.slice(1)).get('t');
+      // The link is done with: say why, hide the button it would be pointless to press, and show
+      // the way in. \`when\` is an ISO stamp from the server, printed in the reader's own timezone.
+      function finished(message, when) {
+        var date = when ? new Date(when) : null;
+        var day = date && !isNaN(date.getTime())
+          ? ' on ' + date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+          : '';
+        intro.hidden = true;
+        button.hidden = true;
+        status.textContent = message.replace('{day}', day);
+        signin.hidden = false;
+      }
       if (!token) {
-        button.disabled = true;
         status.textContent = 'This invite link is incomplete. Ask for the link again.';
         return;
       }
       if (typeof WardPasskey === 'undefined' || !WardPasskey.supported()) {
-        button.disabled = true;
         status.textContent = 'This browser cannot create passkeys. Open the link in Safari or Chrome on your phone.';
         return;
       }
@@ -335,9 +355,25 @@ export function invitePage(): string {
           body: JSON.stringify(body),
         }).then(function (r) { return r.json(); });
       }
+      status.textContent = 'Checking your invite…';
+      post('/admin/invite/check', { token: token })
+        .then(function (result) {
+          if (result.error) throw new Error(result.error);
+          if (result.state === 'used') return finished('This invite link was already used{day}. If that was you, your passkey is ready to use.', result.at);
+          if (result.state === 'expired') return finished('This invite link expired{day}. Ask an administrator for a new one.', result.at);
+          if (result.state !== 'usable') return finished('This invite link is no longer valid. A newer link may have replaced it, so ask an administrator for the current one.');
+          status.textContent = '';
+          button.disabled = false;
+        })
+        .catch(function () {
+          // The check is a courtesy; the registration itself is still the authority. Let them try.
+          status.textContent = '';
+          button.disabled = false;
+        });
       button.addEventListener('click', function () {
         button.disabled = true;
         status.textContent = '';
+        signin.hidden = true;
         post('/admin/passkey/register/options', { token: token })
           .then(function (options) {
             if (options.error) throw new Error(options.error);
@@ -351,11 +387,16 @@ export function invitePage(): string {
             location.href = result.redirect || '/admin';
           })
           .catch(function (err) {
+            if (err && err.name === 'InvalidStateError') {
+              // The browser already holds a passkey for this site and person — this link was
+              // redeemed on this very device.
+              return finished('This device already has a passkey for this site. Sign in with it instead.');
+            }
+            var message = (err && err.message) || 'Something went wrong.';
+            if (/expired or has already been used/.test(message)) return finished(message);
             status.textContent = err && err.name === 'NotAllowedError'
               ? 'That was cancelled. Press the button to try again.'
-              : err && err.name === 'InvalidStateError'
-                ? 'This device already has a passkey for this site. Go to the sign-in page instead.'
-                : (err && err.message) || 'Something went wrong.';
+              : message;
             button.disabled = false;
           });
       });

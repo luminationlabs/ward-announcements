@@ -29,6 +29,7 @@ import {
   addAdminPasskey,
   createAdminInvite,
   createAdminUser,
+  findAdminInvite,
   findUsableAdminInvite,
   getAdminPasskey,
   getAdminUser,
@@ -215,6 +216,28 @@ async function verifyNew(c: Context, user: AdminUserRow, bound: string, body: Re
     logger.warn({ err: err instanceof Error ? err.message : String(err), userId: user.id }, 'passkey registration rejected');
     return { error: 'The new passkey could not be verified. Please try again.' } as const;
   }
+}
+
+/**
+ * What the invite page should say before anyone presses the button. A link that has done its job
+ * looked, for a week afterwards, exactly like a fresh one: the same Welcome and the same Create
+ * Passkey button, and only pressing it produced "expired or already used" — or, on the very phone
+ * that had redeemed it, the browser's own refusal to make a second passkey, before the server was
+ * asked at all. An editor who kept the invite as their bookmark and came back to it the next Sunday
+ * read that as being locked out. So the page asks first, and a spent link says so on arrival, with
+ * the way in: sign in with the passkey the link made.
+ *
+ * `at` is the moment the state was reached (ISO 8601), for the page to render in the reader's own
+ * timezone. The token is 256 random bits, so confirming that one exists tells a guesser nothing.
+ */
+export async function inviteStatus(token: unknown): Promise<Outcome> {
+  if (typeof token !== 'string' || !token) return fail('This invite link is incomplete.');
+  const invite = await findAdminInvite(token);
+  const stamp = (sqlTimestamp: string) => new Date(`${sqlTimestamp.replace(' ', 'T')}Z`).toISOString();
+  if (!invite || !(await getAdminUser(invite.user_id))) return { ok: true, json: { state: 'unknown' } };
+  if (invite.used_at) return { ok: true, json: { state: 'used', at: stamp(invite.used_at) } };
+  if (new Date(stamp(invite.expires_at)).getTime() <= Date.now()) return { ok: true, json: { state: 'expired', at: stamp(invite.expires_at) } };
+  return { ok: true, json: { state: 'usable' } };
 }
 
 /** Options for `navigator.credentials.create()`, for the person an invite names. */
