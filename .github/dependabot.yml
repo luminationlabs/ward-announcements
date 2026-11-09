@@ -1,0 +1,24 @@
+# Dependabot: keeps the dependencies current, so that `main` carries the fixes a ward picks up
+# when it merges this repository into its fork (CHANGELOG.md explains that path).
+#
+# npm is grouped: one PR a week for every minor and patch bump, with a major bump on its own, so
+# the dashboard's sign-in (SimpleWebAuthn), push encryption and Hono get their fixes without a PR
+# per package. Every PR runs `npm test` (.github/workflows/test.yml), which now renders the
+# announcements PDF through the real pdfmake and reads it back with the real pdf.js
+# (test/preview-pdf.test.js), so a bump of either that breaks the export fails the PR; the browser
+# copies in public/vendor/ are regenerated from node_modules at build time, so they follow the bump.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      minor-and-patch:
+        update-types: ['minor', 'patch']
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
