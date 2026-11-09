@@ -2,7 +2,9 @@
  * "Save as PDF" builds a pdfmake document from the preview's markup — the same inline-styled HTML
  * `richPreviewHtml()` renders for the modal and the standalone page — so the PDF can only ever say
  * what the copy says. `public/preview-pdf.js` runs verbatim in a `vm` against a stub DOM parsed
- * from that markup; pdfmake itself is stubbed so the test sees the document definition.
+ * from that markup; pdfmake itself is stubbed so the test sees the document definition. The last
+ * block then renders a few of those definitions through the real pdfmake and reads the bytes back
+ * with the real pdf.js, so a dependency bump that breaks the export fails here.
  *
  * Node only, and deliberately in process. Run with: npm test
  */
@@ -482,5 +484,167 @@ describe('the preview-to-PDF converter', () => {
     });
     assert.deepEqual(parseStyle('font-size:17px;color:#1f3a5f'), {});
     assert.deepEqual(parseStyle(null), {});
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The bytes. Everything above checks the document definition the converter hands pdfmake; these
+// hand it to the real pdfmake (the devDependency the browser copy is vendored from) and read the
+// PDF back with the real pdf.js (likewise), so a bump of either that breaks a table, a link, an
+// image or the text itself fails here — in CI, where Dependabot's PR lands — rather than on a
+// clerk's laptop. Pixels are not compared: font rasterisation differs between machines, and the
+// text, the links, the page count and the page size are what a regression would change.
+// ---------------------------------------------------------------------------
+
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const ROOT = new URL('../', import.meta.url);
+const ROBOTO = new URL('node_modules/pdfmake/build/fonts/Roboto/', ROOT).pathname;
+const EMOJI_WOFF = new URL('public/vendor/noto-emoji/NotoEmoji-Regular.woff', ROOT).pathname;
+const PDFJS_DIST = new URL('node_modules/pdfjs-dist/', ROOT).pathname;
+// A real one-pixel JPEG: pdfkit reads its header to embed it, and pdf.js decodes it when the page
+// is read back (the header-only fixtures in helpers/image-fixtures.js draw a warning there).
+const JPEG =
+  'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==';
+
+/** The document through the real pdfmake, with the fonts the browser registers, as bytes. */
+async function render(doc) {
+  const pdfmake = require('pdfmake');
+  const roboto = { normal: `${ROBOTO}Roboto-Regular.ttf`, bold: `${ROBOTO}Roboto-Medium.ttf`, italics: `${ROBOTO}Roboto-Italic.ttf`, bolditalics: `${ROBOTO}Roboto-MediumItalic.ttf` };
+  const emoji = { normal: EMOJI_WOFF, bold: EMOJI_WOFF, italics: EMOJI_WOFF, bolditalics: EMOJI_WOFF };
+  pdfmake.addFonts({ Roboto: roboto, NotoEmoji: emoji });
+  // Only those fonts; the document itself may reach for no file and no URL (its images are data URLs).
+  pdfmake.setLocalAccessPolicy((path) => path.startsWith(ROBOTO) || path === EMOJI_WOFF);
+  pdfmake.setUrlAccessPolicy(() => false);
+  // Not cloned (the footer is a function); each test builds its own definition for pdfmake to mark up.
+  return new Uint8Array(await pdfmake.createPdf(doc).getBuffer());
+}
+
+/**
+ * The PDF read back with pdf.js: for each page its size in points, its text (runs joined with a
+ * space, as a reader would see them), how many images it paints and the link annotations it carries.
+ */
+async function readBack(bytes) {
+  const pdfjs = await import(`${PDFJS_DIST}legacy/build/pdf.mjs`);
+  const task = pdfjs.getDocument({
+    data: bytes,
+    disableRange: true,
+    disableStream: true,
+    standardFontDataUrl: `${PDFJS_DIST}standard_fonts/`,
+    cMapUrl: `${PDFJS_DIST}cmaps/`,
+    cMapPacked: true,
+  });
+  try {
+    const pdf = await task.promise;
+    const pages = [];
+    for (let n = 1; n <= pdf.numPages; n++) {
+      const page = await pdf.getPage(n);
+      const { width, height } = page.getViewport({ scale: 1 });
+      const text = (await page.getTextContent()).items.map((i) => i.str).filter(Boolean).join(' ').replace(/\s+/gu, ' ').trim();
+      const ops = await page.getOperatorList();
+      const images = ops.fnArray.filter((f) => f === pdfjs.OPS.paintImageXObject).length;
+      const links = (await page.getAnnotations()).filter((a) => a.url).map((a) => a.url);
+      pages.push({ width, height, text, images, links });
+    }
+    return pages;
+  } finally {
+    await task.destroy();
+  }
+}
+
+describe('the PDF itself, through the real pdfmake and read back with the real pdf.js', () => {
+  const invite =
+    `<p data-app-link><a href="https://ward.example.org/#i=abc-DEF_123">Get these announcements on your phone each week</a>. ` +
+    `<span>This link works through October 20.</span></p>`;
+
+  test('the handout says what the preview says, links where it links, and carries its picture', async () => {
+    const { api } = load({ fontBytes: readFileSync(EMOJI_WOFF) });
+    const doc = await api.build(parse(`${PREVIEW}<h3>Farewell 👋</h3><p>Bring a dish 🍲.</p>${invite}`), {
+      title: 'Ward Announcements',
+      now: new Date(2026, 8, 27),
+      emojiFont: 'NotoEmoji',
+      loadImage: async (src) => (src.endsWith('k2') ? null : JPEG),
+    });
+    const bytes = await render(doc);
+    assert.equal(Buffer.from(bytes.subarray(0, 5)).toString('latin1'), '%PDF-');
+    const pages = await readBack(bytes);
+    assert.ok(pages.length <= 2, `a short handout is a page or two, not ${pages.length}`);
+    assert.ok(pages.every((p) => p.width === 612 && p.height === 792), 'US letter');
+    // Read as one: where pdfmake breaks the page is its business, what is on them is ours.
+    const page = {
+      text: pages.map((p) => p.text).join(' '),
+      images: pages.reduce((n, p) => n + p.images, 0),
+      // pdfmake writes one annotation per word of a linked run; what matters is where they go.
+      links: [...new Set(pages.flatMap((p) => p.links))],
+    };
+    assert.ok(pages[0].text.startsWith('Ward Announcements Sunday, September 27, 2026'), `the title and date head the first page: ${pages[0].text}`);
+    for (const said of [
+      'Ward Announcements',
+      'September 27, 2026',
+      'Ward Temple Day & Potluck',
+      'A bold word, an italic one and a link.',
+      'Second line after a break.',
+      'Speaker … Jane Doe',
+      'tight one',
+      'Second announcement',
+      'Body two.',
+      'Farewell',
+      'Bring a dish',
+      'Get these announcements on your phone each week. This link works through October 20.',
+    ]) {
+      assert.ok(page.text.includes(said), `the page says "${said}" — it reads: ${page.text}`);
+    }
+    assert.ok(!/[<>]/u.test(page.text), 'no markup on the page');
+    assert.equal(page.images, 1, 'the picture that loaded, and not the one that did not');
+    assert.deepEqual(page.links, ['https://example.com/x', 'https://ward.example.org/#i=abc-DEF_123'], 'the body link and the app link, fragment intact');
+  });
+
+  test('a long handout runs to several numbered pages, and nothing is lost between them', async () => {
+    const { api } = load();
+    const body = Array.from({ length: 24 }, (_, i) => `<h3>Announcement ${i + 1}</h3><p>Paragraph ${i + 1}: ${'the quick brown fox jumps over the lazy dog. '.repeat(4)}</p>`).join('');
+    // The app link sits after the wrapper, as the dashboard appends it (`appLinkHtml()`), not inside it.
+    const doc = await api.build(parse(`<div>${body}</div>${invite}`), { title: 'Ward Announcements', now: new Date(2026, 8, 27), loadImage: async () => null });
+    const pages = await readBack(await render(doc));
+    assert.ok(pages.length >= 2, `more than one page (${pages.length})`);
+    const all = pages.map((p) => p.text).join(' ');
+    for (let i = 1; i <= 24; i++) assert.ok(all.includes(`Announcement ${i}`) && all.includes(`Paragraph ${i}:`), `announcement ${i} is printed`);
+    for (let n = 1; n <= pages.length; n++) assert.ok(pages[n - 1].text.includes(`${n} of ${pages.length}`), `page ${n} says "${n} of ${pages.length}"`);
+    assert.ok(pages[pages.length - 1].links.includes('https://ward.example.org/#i=abc-DEF_123'), `the app link closes the last page: ${JSON.stringify(pages.map((p) => p.links))}`);
+  });
+
+  test('an attached PDF printed in full at the end is one full-size page per page, after the handout', async () => {
+    const { api } = load();
+    const html = `<div><h3>Packet</h3><p>Read it all.</p>` +
+      `<p><a href="/images/three.pdf" data-pdf="/images/three.pdf" data-pages="3"><img src="/images/three.jpg" alt="PDF"></a></p></div>${invite}`;
+    const drawn = { data: JPEG, width: 816, height: 1056 }; // what drawPdfPage returns for a letter page
+    const doc = await api.build(parse(html), {
+      title: 'Ward Announcements',
+      now: new Date(2026, 0, 4),
+      loadImage: async () => null,
+      loadPdf: async () => ({ count: 3, first: null, pages: [drawn, drawn, drawn] }),
+      pdfsAtEnd: true,
+    });
+    const pages = await readBack(await render(doc));
+    assert.equal(pages.length, 4, 'the handout, then the packet');
+    assert.ok(pages[0].text.includes('Read it all.'));
+    assert.match(pages[0].text, /printed in full at the end/u);
+    assert.equal(pages[0].images, 0, 'no thumbnail where the packet was');
+    assert.ok(pages[0].links.includes('https://ward.example.org/#i=abc-DEF_123'), 'the app link closes the handout, before the packet');
+    for (const n of [2, 3, 4]) {
+      assert.equal(pages[n - 1].images, 1, `page ${n} is one drawn page`);
+      assert.ok(!/Read it all/u.test(pages[n - 1].text), `page ${n} carries no handout text`);
+    }
+  });
+
+  test('the browser gets the same pdfmake and pdf.js the tests ran', () => {
+    // The vendored copies are what a clerk's browser loads (scripts/vendor-*.mjs); they are rebuilt
+    // from node_modules by `npm run assets`, so a stale copy here means a bump CI passed was never
+    // what shipped.
+    const same = (vendored, installed) =>
+      assert.ok(readFileSync(new URL(vendored, ROOT)).equals(readFileSync(new URL(installed, ROOT))), `${vendored} is ${installed}`);
+    same('public/vendor/pdfjs/pdf.min.js', 'node_modules/pdfjs-dist/legacy/build/pdf.min.mjs');
+    same('public/vendor/pdfjs/pdf.worker.min.js', 'node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs');
+    same('public/vendor/pdfmake/pdfmake.min.js', 'node_modules/pdfmake/build/pdfmake.min.js');
   });
 });
