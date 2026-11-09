@@ -34,7 +34,7 @@ jobs:
           cp -r docs/images _site/docs/images
           gh api -X POST /markdown -f mode=gfm -f context="$GITHUB_REPOSITORY" -F text=@README.md > body.html
           node scripts/readme-site.mjs body.html _site/index.html
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
