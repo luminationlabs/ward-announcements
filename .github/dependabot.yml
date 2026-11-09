@@ -7,6 +7,10 @@
 # announcements PDF through the real pdfmake and reads it back with the real pdf.js
 # (test/preview-pdf.test.js), so a bump of either that breaks the export fails the PR; the browser
 # copies in public/vendor/ are regenerated from node_modules at build time, so they follow the bump.
+#
+# The cooldown holds a new npm version back for five days before Dependabot proposes it. A
+# compromised maintainer account tends to be noticed, and the malicious version pulled, within
+# hours to days of publishing; a ward's dashboard should not be among the first to install it.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -14,6 +18,8 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 5
     groups:
       minor-and-patch:
         update-types: ['minor', 'patch']
