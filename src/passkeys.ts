@@ -233,10 +233,17 @@ async function verifyNew(c: Context, user: AdminUserRow, bound: string, body: Re
 export async function inviteStatus(token: unknown): Promise<Outcome> {
   if (typeof token !== 'string' || !token) return fail('This invite link is incomplete.');
   const invite = await findAdminInvite(token);
-  const stamp = (sqlTimestamp: string) => new Date(`${sqlTimestamp.replace(' ', 'T')}Z`).toISOString();
+  // SQLite's 'YYYY-MM-DD HH:MM:SS' (UTC) as a Date; an unparseable column — none is expected, but
+  // `toISOString()` on an invalid Date throws — leaves the state without its moment, not a 500.
+  const when = (sqlTimestamp: string) => {
+    const date = new Date(`${sqlTimestamp.replace(' ', 'T')}Z`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+  const at = (date: Date | null) => (date ? { at: date.toISOString() } : {});
   if (!invite || !(await getAdminUser(invite.user_id))) return { ok: true, json: { state: 'unknown' } };
-  if (invite.used_at) return { ok: true, json: { state: 'used', at: stamp(invite.used_at) } };
-  if (new Date(stamp(invite.expires_at)).getTime() <= Date.now()) return { ok: true, json: { state: 'expired', at: stamp(invite.expires_at) } };
+  if (invite.used_at) return { ok: true, json: { state: 'used', ...at(when(invite.used_at)) } };
+  const expires = when(invite.expires_at);
+  if (expires && expires.getTime() <= Date.now()) return { ok: true, json: { state: 'expired', ...at(expires) } };
   return { ok: true, json: { state: 'usable' } };
 }
 
