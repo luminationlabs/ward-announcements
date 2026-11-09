@@ -51,6 +51,30 @@ function local(instant) {
   return { dow, time: `${parts.hour}:${parts.minute}` };
 }
 
+/**
+ * The ward's Sunday 08:00 send `n` Sundays ahead (n ≥ 1, counting from the day after tomorrow, so
+ * the real alarm fired above has not been past it): the date, the instant, and the slot label the
+ * send history records. Denver is six or seven hours behind UTC, so 08:00 there is 14:00Z or
+ * 15:00Z; whichever reads 08:00 Sunday in the ward zone is it — across a clock change too. Computed
+ * from the clock because fixed dates age out: the Sundays this file first named went past, and the
+ * ward then treated a skip of a Sunday already sent as nothing to record.
+ */
+function sundaySend(n) {
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
+  let date = null;
+  for (let ahead = 2, seen = 0; ahead < 30 && !date; ahead++) {
+    const candidate = new Date(Date.now() + ahead * 24 * 60 * 60 * 1000);
+    if (local(candidate).dow === 0 && ++seen === n) date = day.format(candidate);
+  }
+  for (const hour of ['14', '15']) {
+    const instant = new Date(`${date}T${hour}:00:00Z`);
+    const { dow, time } = local(instant);
+    if (dow === 0 && time === '08:00') return { date, instant, slot: `${date}T08:00` };
+  }
+  throw new Error(`no 08:00 on ${date} in ${TZ}`);
+}
+const minutesAfter = (instant, minutes) => new Date(instant.getTime() + minutes * 60_000).toISOString();
+
 before(async () => {
   server = await startServer({ port: testPort(10) });
   req = createClient(server.base);
@@ -133,24 +157,27 @@ test('a real alarm fires, runs the handler, and sets the next one', async () => 
   assert.ok(alarm > before, 'into the future');
 });
 
+// The next Sunday's 08:00 send, and the one after: the conference weekend and the week after.
+const conference = sundaySend(1);
+const following = sundaySend(2);
+
 test('stake conference: a skipped Sunday sends nothing when its alarm fires', async () => {
-  // Sunday 1 November 2026, 08:00 in Denver (clocks went back that night: 15:00 UTC).
-  assert.equal((await post('/admin/skips', { skip_date: '2026-11-01', note: 'Stake conference' })).status, 302);
-  await tick('2026-11-01T15:01:00Z');
+  assert.equal((await post('/admin/skips', { skip_date: conference.date, note: 'Stake conference' })).status, 302);
+  await tick(minutesAfter(conference.instant, 1));
   const { sends, queue } = await state();
   assert.equal(sends[0]?.type, 'skipped', 'the skip is recorded in the send history');
   assert.equal(queue, 0, 'and nothing was queued');
 
   // A second alarm on the same morning (a retry, a poke) must not change its mind.
-  await tick('2026-11-01T15:30:00Z');
+  await tick(minutesAfter(conference.instant, 30));
   assert.equal((await state()).sends.filter((s) => s.type !== 'manual').length, 1);
 });
 
 test('stake conference: the following Sunday sends as usual', async () => {
-  await tick('2026-11-08T15:01:00Z');
+  await tick(minutesAfter(following.instant, 1));
   const { sends, queue } = await state();
   assert.equal(sends[0]?.type, 'scheduled');
-  assert.equal(sends[0]?.batch.slot, '2026-11-08T08:00');
+  assert.equal(sends[0]?.batch.slot, following.slot);
   assert.equal(sends[0]?.batch.total, 1, 'to the one subscriber');
   // Attempted in the same run. Whether it was accepted depends on the push service, which is not
   // reachable from here; what matters is that the ward sent.
