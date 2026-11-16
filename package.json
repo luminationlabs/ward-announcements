@@ -37,33 +37,33 @@
   "dependencies": {
     "@block65/webcrypto-web-push": "2.0.0",
     "@hono/node-server": "^2.1.6",
-    "@simplewebauthn/server": "^14.0.3",
+    "@simplewebauthn/server": "^14.1.0",
     "better-sqlite3": "^13.0.3",
     "croner": "^11.0.0",
-    "dotenv": "^18.0.9",
-    "hono": "^4.13.16",
+    "dotenv": "^18.0.10",
+    "hono": "^4.13.17",
     "markdown-it": "^15.0.3",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20261106.1",
+    "@cloudflare/workers-types": "^5.20261110.1",
     "@simplewebauthn/browser": "^14.0.0",
-    "@tiptap/core": "^3.33.0",
-    "@tiptap/extension-text-align": "^3.33.0",
+    "@tiptap/core": "^3.33.1",
+    "@tiptap/extension-text-align": "^3.33.1",
     "@tiptap/extensions": "^3.32.0",
-    "@tiptap/pm": "^3.33.0",
-    "@tiptap/starter-kit": "^3.33.0",
+    "@tiptap/pm": "^3.33.1",
+    "@tiptap/starter-kit": "^3.33.1",
     "@types/better-sqlite3": "^9.6.0",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^26.6.6",
     "@types/qrcode": "^1.5.5",
     "esbuild": "^0.28.2",
     "pdfjs-dist": "^6.5.438",
-    "pdfmake": "^0.3.13",
+    "pdfmake": "^0.3.14",
     "prosemirror-markdown": "^1.13.8",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "wrangler": "^4.158.0"
+    "wrangler": "^4.160.0"
   },
   "cloudflare": {
     "bindings": {
